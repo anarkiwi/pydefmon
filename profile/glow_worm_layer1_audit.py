@@ -173,15 +173,12 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"# glow_worm layer-1 audit")
     print()
-    print(f"source: `{csv_path.relative_to(REPO_ROOT)}` "
-          f"({n_frames} frames)")
+    print(f"source: `{csv_path.relative_to(REPO_ROOT)}` " f"({n_frames} frames)")
     print(f"source .prg: `{prg_path.relative_to(REPO_ROOT)}`")
     print()
     print("## $D416 (cutoff hi) trajectory")
     print()
-    print(
-        f"- emit-value range: min={min(cutoff_traj)} max={max(cutoff_traj)}"
-    )
+    print(f"- emit-value range: min={min(cutoff_traj)} max={max(cutoff_traj)}")
     print(f"- distinct values: {len(set(cutoff_traj))}")
     print(f"- total run-length segments: {len(runs)}")
     print()
@@ -202,11 +199,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"- first 10: {reset_frames[:10]}")
     if reset_frames:
         gaps = [
-            reset_frames[i + 1] - reset_frames[i]
-            for i in range(len(reset_frames) - 1)
+            reset_frames[i + 1] - reset_frames[i] for i in range(len(reset_frames) - 1)
         ]
-        print(f"- inter-reset gap min/median/max: "
-              f"{min(gaps)}/{sorted(gaps)[len(gaps)//2]}/{max(gaps)}")
+        print(
+            f"- inter-reset gap min/median/max: "
+            f"{min(gaps)}/{sorted(gaps)[len(gaps)//2]}/{max(gaps)}"
+        )
     print()
     print("## $D417 (RE) write stream")
     print()
@@ -222,8 +220,10 @@ def main(argv: list[str] | None = None) -> int:
     print("|---:|---:|---:|---|")
     for v_idx in range(3):
         sb = slot_b[v_idx]
-        print(f"| V{v_idx} | {sb['n_patterns']} | {sb['n_gate_b']} | "
-              f"{sb['targets']} |")
+        print(
+            f"| V{v_idx} | {sb['n_patterns']} | {sb['n_gate_b']} | "
+            f"{sb['targets']} |"
+        )
     print()
     print("## Planner projection")
     print()
@@ -236,8 +236,7 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(re_changes)} (one per RE change)"
     )
     print(
-        "- expected layer-1 sidTAB rows: ~6 "
-        "(ACID abs/SBC/ADC + RE/FV/CP set rows)"
+        "- expected layer-1 sidTAB rows: ~6 " "(ACID abs/SBC/ADC + RE/FV/CP set rows)"
     )
     return 0
 

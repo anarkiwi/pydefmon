@@ -44,7 +44,7 @@ def _build_freq_to_note_per_voice() -> list[dict[tuple[int, int], int]]:
 
 
 VOICE_REG_RANGES = {
-    0: range(0, 7),   # V0: $D400..$D406
+    0: range(0, 7),  # V0: $D400..$D406
     1: range(7, 14),  # V1: $D407..$D40D
     2: range(14, 21),  # V2: $D40E..$D414
 }
@@ -61,11 +61,13 @@ def reg_field(reg: int) -> str:
     """V?: freq_lo / freq_hi / pw_lo / pw_hi / ctrl / ad / sr; or global name."""
     v = voice_for_reg(reg)
     if v is None:
-        return {21: "filter_cutoff_lo", 22: "filter_cutoff_hi",
-                23: "filter_res", 24: "volume_mode"}.get(reg, f"reg{reg}")
-    field = ("freq_lo", "freq_hi", "pw_lo", "pw_hi", "ctrl", "ad", "sr")[
-        reg - 7 * v
-    ]
+        return {
+            21: "filter_cutoff_lo",
+            22: "filter_cutoff_hi",
+            23: "filter_res",
+            24: "volume_mode",
+        }.get(reg, f"reg{reg}")
+    field = ("freq_lo", "freq_hi", "pw_lo", "pw_hi", "ctrl", "ad", "sr")[reg - 7 * v]
     return f"V{v}.{field}"
 
 
@@ -141,19 +143,27 @@ def main(argv: "list[str] | None" = None) -> int:
     print()
     print("per-voice changes:")
     for v in (0, 1, 2):
-        print(f"  V{v}: {per_voice_changes[v]} CSV rows, {phrases[v]} phrase boundaries")
+        print(
+            f"  V{v}: {per_voice_changes[v]} CSV rows, {phrases[v]} phrase boundaries"
+        )
     print()
     print("per-global changes:")
     for reg in sorted(per_global_changes):
         print(f"  {reg_field(reg)} (reg {reg}): {per_global_changes[reg]} rows")
     print()
     print("reachability failures:")
-    print(f"  freq off-LUT: V0={freq_unreachable[0]} V1={freq_unreachable[1]} V2={freq_unreachable[2]}")
+    print(
+        f"  freq off-LUT: V0={freq_unreachable[0]} V1={freq_unreachable[1]} V2={freq_unreachable[2]}"
+    )
     for v in (0, 1, 2):
         if freq_unreachable_examples[v]:
-            ex = ", ".join(f"(${l:02X},${h:02X})" for l, h in freq_unreachable_examples[v])
+            ex = ", ".join(
+                f"(${l:02X},${h:02X})" for l, h in freq_unreachable_examples[v]
+            )
             print(f"    V{v} examples: {ex}")
-    print(f"  pw 12-bit-broken: V0={pw_unreachable[0]} V1={pw_unreachable[1]} V2={pw_unreachable[2]}")
+    print(
+        f"  pw 12-bit-broken: V0={pw_unreachable[0]} V1={pw_unreachable[1]} V2={pw_unreachable[2]}"
+    )
     print(f"  FV (low nibble != $F): {fv_unreachable}")
     print(f"  RE (bits 7|3 set): {re_unreachable}")
     return 0

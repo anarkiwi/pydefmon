@@ -399,9 +399,7 @@ class TestLayer1StopWithSlot0(unittest.TestCase):
         # so no further global writes. $D416 stays at $40 because
         # the slide step is still 0.
         layer1_rows = [({"ACID": 0x0040}, 0x80)]
-        pat = _gate_a_pattern(
-            layer1_gate_b_at={1: LAYER1_BASE_ROW, 10: 0}
-        )
+        pat = _gate_a_pattern(layer1_gate_b_at={1: LAYER1_BASE_ROW, 10: 0})
         song = _build_layer1_song(
             voice=0,
             layer0_row_cols=_default_layer0_cols(),
@@ -516,8 +514,7 @@ class TestLayer1ReBitmaskAndDirect(unittest.TestCase):
                     self.assertEqual(
                         got,
                         re_val,
-                        f"V{voice} direct-set RE=${re_val:02X} got "
-                        f"${got:02X}",
+                        f"V{voice} direct-set RE=${re_val:02X} got " f"${got:02X}",
                     )
 
     def test_re_bitmask_path(self):
@@ -563,8 +560,7 @@ class TestLayer1ReBitmaskAndDirect(unittest.TestCase):
                 self.assertEqual(
                     got,
                     expected,
-                    f"V{voice} clear path got ${got:02X}, "
-                    f"expected ${expected:02X}",
+                    f"V{voice} clear path got ${got:02X}, " f"expected ${expected:02X}",
                 )
 
 
@@ -676,10 +672,11 @@ class TestForwardSimulatorMatchesPlayer(unittest.TestCase):
             o = observed[first_obs + j] if first_obs + j < len(observed) else None
             s = sim[first_sim + j] if first_sim + j < len(sim) else None
             self.assertEqual(
-                o, s,
+                o,
+                s,
                 f"frame +{j} from peak: observed={o} sim={s} "
                 f"(observed tail {observed[first_obs:first_obs+10]}, "
-                f"sim tail {sim[first_sim:first_sim+10]})"
+                f"sim tail {sim[first_sim:first_sim+10]})",
             )
 
 
@@ -709,7 +706,7 @@ class TestProfileLayer1CutoffOnGlowWorm(unittest.TestCase):
             len(fires),
             16,
             f"profile_layer1_cutoff found {len(fires)} GATE_B fires; "
-            f"audit-expected 16. fires={fires[:20]}"
+            f"audit-expected 16. fires={fires[:20]}",
         )
         # First fire should be at frame 0 (the initial cutoff
         # engagement, reset at frame 1).

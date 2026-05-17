@@ -786,9 +786,7 @@ def _build_voice_chunks(
     # next frame's emit; emit at frame F+1 ~= CSV row at frame F+1).
     # Phrases at start_frame=0 require no trigger (their state matches
     # the player's initial state).
-    chunk_phrases: list[list[tuple[int, int, int, int]]] = [
-        [] for _ in range(n_chunks)
-    ]
+    chunk_phrases: list[list[tuple[int, int, int, int]]] = [[] for _ in range(n_chunks)]
     for phrase, inst_idx in zip(phrases, phrase_inst_idx):
         if phrase.start_frame == 0:
             continue

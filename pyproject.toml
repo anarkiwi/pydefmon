@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pydefmon"
+version = "0.1.0"
+description = "Python implementation of the defMON tracker's file format, register-level player, and CSV-to-prg reconstructor."
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Josh Bailey", email = "josh@vandervecken.com" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Multimedia :: Sound/Audio",
+]
+dependencies = []
+
+[project.optional-dependencies]
+wav = ["pyresidfp", "numpy"]
+dev = ["pytest", "pylint"]
+
+[tool.setuptools]
+packages = ["pydefmon"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+pydefmon = ["data/*.prg"]

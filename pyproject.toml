@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydefmon"
-version = "0.2.0"
+version = "0.3.0"
 description = "Python implementation of the defMON C64 tracker's file format and register-level player."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }

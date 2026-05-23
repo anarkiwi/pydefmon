@@ -63,9 +63,9 @@ TUNE_PRG = "glow_worm.prg"
 D64_NAME = "defmon-withtunes.d64"
 CONTAINER_NAME = f"pydefmon-player-{os.getpid()}"
 # Real-time seconds to let defMON play under -warp.
-PLAY_DURATION_S = 30.0
+PLAY_DURATION_S = 120.0
 # Number of main frames to assert match after the snapshot point.
-COMPARE_FRAMES = 300
+COMPARE_FRAMES = 1200
 # Cycle delta that signals the start of a new player NMI frame.
 FRAME_GAP_CYCLES = 5000
 

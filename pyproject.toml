@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pydefmon"
+version = "0.2.0"
+description = "Python implementation of the defMON C64 tracker's file format and register-level player."
+readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Josh Bailey", email = "josh@vandervecken.com" },
+]
+keywords = ["c64", "sid", "defmon", "tracker", "chiptune"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = []
+
+[project.optional-dependencies]
+wav = ["pyresidfp", "numpy"]
+dev = ["pytest", "pylint", "black", "build", "twine"]
+integration = ["defmon-driver==0.3.0", "vice-driver==0.2.0"]
+
+[project.urls]
+Homepage = "https://github.com/anarkiwi/pydefmon"
+Issues = "https://github.com/anarkiwi/pydefmon/issues"
+Source = "https://github.com/anarkiwi/pydefmon"
+
+[project.scripts]
+pydefmon-player = "pydefmon.defmon_player:main"
+
+[tool.setuptools]
+packages = ["pydefmon"]
+
+[tool.black]
+target-version = ["py310"]
+
+[tool.pylint.messages_control]
+# C0103 invalid-name: hex-address constants ($1B00, sidTAB column names
+#   WGh/WGl/AD/SR/...) intentionally retain the C64 / spec spellings.
+# C0114/C0115/C0116 missing-docstring: not blocking; the spec doc covers
+#   the architecture, in-source docstrings live where they add value.
+# C0301/C0302 line-too-long / too-many-lines: long disassembly comments
+#   document the underlying 6502; reformatting them would lose alignment.
+# C0325 superfluous-parens: project style prefers `if not (x & 0x80)`.
+# C0415 import-outside-toplevel: pyresidfp / numpy are optional ([wav]
+#   extra); the lazy import keeps the core package import-cheap.
+# R09xx too-many-*: the player IRQ legitimately has many branches.
+# W1514 unspecified-encoding: open() in WAV/JSONL paths is binary or
+#   ASCII-only; not worth threading encoding= through every callsite.
+disable = [
+    "C0103",
+    "C0114", "C0115", "C0116",
+    "C0301", "C0302", "C0325", "C0415",
+    "R0902", "R0903", "R0904", "R0911", "R0912", "R0913", "R0914", "R0915",
+    "W1514",
+]

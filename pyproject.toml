@@ -31,7 +31,7 @@ dependencies = []
 [project.optional-dependencies]
 wav = ["pyresidfp", "numpy"]
 dev = ["pytest", "pylint", "black", "build", "twine"]
-integration = ["defmon-driver==0.3.0", "vice-driver==0.2.0"]
+integration = ["defmon-driver==0.3.0", "vice-driver==0.3.0"]
 
 [project.urls]
 Homepage = "https://github.com/anarkiwi/pydefmon"

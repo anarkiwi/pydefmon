@@ -42,6 +42,12 @@ from pydefmon.defmon import (
     STANDARD_SNAPSHOT_SIZE,
 )
 from pydefmon.defmon_player import DefmonPlayer, Voice
+from pydefmon.reglog import (
+    RegWrite,
+    iter_register_writes,
+    read_reglog,
+    write_reglog,
+)
 
 __all__ = [
     "DefmonError",
@@ -51,12 +57,16 @@ __all__ = [
     "NOTE_PITCH_HI",
     "NOTE_PITCH_LO",
     "PatternEvent",
+    "RegWrite",
     "SidcallFrame",
     "SidtabRow",
     "STANDARD_SNAPSHOT_END",
     "STANDARD_SNAPSHOT_SIZE",
     "Voice",
     "__version__",
+    "iter_register_writes",
+    "read_reglog",
+    "write_reglog",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

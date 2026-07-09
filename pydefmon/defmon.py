@@ -70,6 +70,7 @@ from pydefmon._load_format import (
     encode_ram_block,
 )
 from pydefmon._sid_format import depack_replay, find_signature
+from pydefmon._goto80_format import decode_replay as decode_goto80_replay
 
 LOAD_ADDRESS = LOAD_ADDR
 STANDARD_SNAPSHOT_END = 0x7167
@@ -206,6 +207,11 @@ class DefmonSong:
         """
         image = SidImage.from_bytes(raw)
         snapshot = depack_replay(image)
+        if snapshot is None:
+            # Fall back to the older Goto80 compact-runtime encoding
+            # (variable-length pattern streams + relocated sidTAB bodies)
+            # that the standard editor-layout reconstruction can't map.
+            snapshot = decode_goto80_replay(image)
         if snapshot is None:
             if find_signature(image.mem) < 0:
                 raise DefmonError("not a defMON replay (player signature not found)")

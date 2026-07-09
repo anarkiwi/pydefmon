@@ -1,13 +1,88 @@
 """Test-only helpers. Not part of the public package."""
 
 import os
+import time
+import urllib.error
+import urllib.request
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES_DIR = Path(
     os.environ.get("PYDEFMON_FIXTURES_DIR", REPO_ROOT / "build" / "fixtures")
 )
+
+# Gitignored runtime cache for HVSC tunes fetched by the corpus tests. HVSC
+# tunes are copyright works and are NEVER committed; CI caches this dir with
+# actions/cache keyed on the corpus list + this file's hash.
+TUNECACHE_DIR = Path(
+    os.environ.get("PYDEFMON_TUNECACHE", REPO_ROOT / "build" / "tunecache")
+)
+# Public HVSC mirror serving the C64Music tree over HTTPS.
+HVSC_MIRROR = os.environ.get(
+    "PYDEFMON_HVSC_MIRROR", "https://hvsc.brona.dk/HVSC/C64Music"
+)
+# The curated list of DefMon .sid replays (relative to C64Music) the corpus
+# tests exercise. Committed (paths only, no tune bytes); drives both the CI
+# cache key and the fetch set.
+CORPUS_LIST = Path(__file__).resolve().parent / "defmon_corpus.txt"
+_FETCH_RETRIES = 3
+_FETCH_BACKOFF = 1.5
+
+
+def corpus_relpaths() -> List[str]:
+    """Return the committed list of DefMon ``.sid`` relative paths."""
+    if not CORPUS_LIST.exists():
+        return []
+    return [
+        line.strip()
+        for line in CORPUS_LIST.read_text(encoding="ascii").splitlines()
+        if line.strip()
+    ]
+
+
+def resolve_tune(relpath: str) -> Optional[Path]:
+    """Resolve one HVSC tune (relative to ``C64Music``) to a local file.
+
+    Prefers the local ``$HVSC`` tree; otherwise serves it from the gitignored
+    tunecache, fetching from :data:`HVSC_MIRROR` (with retries) on a cache
+    miss. Returns ``None`` only if the tune is genuinely unreachable after
+    retries (offline runner) -- callers skip that individual tune.
+    """
+    root = hvsc_root()
+    if root is not None:
+        local = root / relpath
+        if local.is_file():
+            return local
+    cached = TUNECACHE_DIR / relpath
+    if cached.is_file():
+        return cached
+    url = f"{HVSC_MIRROR}/{relpath}"
+    for attempt in range(_FETCH_RETRIES):
+        try:
+            with urllib.request.urlopen(url, timeout=30) as resp:
+                data = resp.read()
+        except (urllib.error.URLError, OSError, TimeoutError):
+            if attempt + 1 < _FETCH_RETRIES:
+                time.sleep(_FETCH_BACKOFF * (attempt + 1))
+            continue
+        if data[:4] not in (b"PSID", b"RSID"):
+            return None
+        cached.parent.mkdir(parents=True, exist_ok=True)
+        cached.write_bytes(data)
+        return cached
+    return None
+
+
+def resolve_corpus() -> List[Tuple[str, Path]]:
+    """Resolve every listed DefMon tune to a local file (fetching + caching
+    as needed). Unreachable tunes are omitted (offline runner)."""
+    out: List[Tuple[str, Path]] = []
+    for rel in corpus_relpaths():
+        path = resolve_tune(rel)
+        if path is not None:
+            out.append((rel, path))
+    return out
 
 
 def hvsc_root() -> Optional[Path]:

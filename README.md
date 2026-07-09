@@ -25,7 +25,7 @@ HVSC distributes (the packed, relocatable player + compacted tune
 data). `DefmonSong.from_bytes` / `DefmonSong.from_file` /
 `DefmonSidParser().read` dispatch on the container automatically. See
 [`docs/SPEC.md`](docs/SPEC.md#6-psidrsid-sid-replay-container) for the
-`.sid` layout and its one known unsupported packer variant.
+`.sid` layout, including the older Goto80 compact-runtime encoding.
 
 ```python
 from pydefmon import DefmonSong, DefmonPlayer, PatternEvent

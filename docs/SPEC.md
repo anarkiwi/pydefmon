@@ -343,16 +343,22 @@ reader (`pydefmon._sid_format`) re-expands them into the editor's fixed
 * `DB+$600` — per-sidTAB-row DL bytes (verbatim).
 
 **Coverage.** Every DefMon `.sid` in HVSC that sidid identifies (106
-tunes as of HVSC #82) is recognised. All but a small set decode to a
-structurally sound `DefmonSong`. The exceptions are four Goto80 tunes
-(`Evil_Wizard_2`, `Rent-A-Cop`, `Rent-A-Cop_Reloaded`,
-`Rent-A-Cop_Reloaded_title`) built with a newer packer variant that
-lays its data out compactly behind zero-page-indirect addressing rather
-than the absolute-indexed tables above; the reader recognises them but
-raises `DefmonError` ("compact/indirect packer variant") rather than
-fabricate a song. `tests/test_hvsc_sid_corpus.py` asserts the whole
-corpus recognises and that each tune either decodes soundly or raises
-that specific error; it `skipTest`s when `$HVSC` is unset.
+tunes as of HVSC #82) is recognised and decodes to a structurally sound
+`DefmonSong`. The four Goto80 tunes (`Evil_Wizard_2`, `Rent-A-Cop`,
+`Rent-A-Cop_Reloaded`, `Rent-A-Cop_Reloaded_title`) are older builds
+that store the *same documented* defMON data model in a more compact
+runtime encoding — variable-length control-byte pattern streams behind a
+pattern-pointer pair, plus relocated sidTAB bitmask bodies — rather than
+the absolute-indexed 4-byte-row tables above. `pydefmon._goto80_format`
+locates the engine tables relocation-independently (by the build's own
+track-stepper / orderlist code idioms) and re-expands them into the
+editor-layout snapshot; `from_sid_bytes` uses it as the fallback after
+the canonical reconstruction. `tests/test_hvsc_sid_corpus.py` asserts
+the whole corpus recognises and decodes soundly, and
+`tests/test_goto80_oracle.py` verifies the Goto80 reconstruction
+frame-exact on the cascade (waveform + envelope) registers against a
+clean-room py65 oracle. Both fetch tunes from the HVSC mirror into a
+gitignored cache when `$HVSC` is unset.
 
 ## 7. Out of scope
 

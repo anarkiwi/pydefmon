@@ -31,6 +31,7 @@ For raw byte-level work on defMON's ``$D6C9`` LOAD codec, see
 
 from pydefmon.defmon import (
     DefmonError,
+    DefmonSidParser,
     DefmonSong,
     LOAD_ADDRESS,
     NOTE_PITCH_HI,
@@ -52,6 +53,7 @@ from pydefmon.reglog import (
 __all__ = [
     "DefmonError",
     "DefmonPlayer",
+    "DefmonSidParser",
     "DefmonSong",
     "LOAD_ADDRESS",
     "NOTE_PITCH_HI",

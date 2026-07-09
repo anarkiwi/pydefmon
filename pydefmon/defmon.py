@@ -59,6 +59,10 @@ available for power users (:attr:`pattern_bodies`,
 
 from __future__ import annotations
 
+from typing import Any
+
+from pysidtracker import BaseSidParser, SidError, SidImage
+
 from pydefmon._load_format import (
     CodecError,
     LOAD_ADDR,
@@ -97,7 +101,7 @@ assert len(NOTE_PITCH_LO) == 128
 assert len(NOTE_PITCH_HI) == 128
 
 
-class DefmonError(ValueError):
+class DefmonError(SidError, ValueError):
     """Raised when a file does not look like a defMON tune."""
 
 
@@ -1334,3 +1338,21 @@ class SidcallFrame:
 
     def __hash__(self) -> int:
         return hash((self.row_index, self.control, bytes(self.sidtab_row.raw)))
+
+
+class DefmonSidParser(BaseSidParser):
+    """:class:`pysidtracker.BaseSidParser` adapter for defMON ``.prg`` tunes.
+
+    :meth:`parse` delegates to :meth:`DefmonSong.from_bytes`; the inherited
+    :meth:`read` gives the shared path/bytes/file-like entry point. defMON
+    tunes carry no fixed static byte signature, so :meth:`recognize` is left
+    as the base no-op (returns ``None``).
+    """
+
+    error_class: type = DefmonError
+
+    def parse(self, data: bytes, **kwargs: Any) -> DefmonSong:
+        return DefmonSong.from_bytes(data)
+
+    def recognize(self, image: SidImage) -> None:  # pylint: disable=unused-argument
+        return None

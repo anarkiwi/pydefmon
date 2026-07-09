@@ -21,11 +21,13 @@ Two entry points:
 
 from __future__ import annotations
 
+from pysidtracker import SidError
+
 LOAD_ADDR = 0x1800
 ESC = 0xFF
 
 
-class CodecError(ValueError):
+class CodecError(SidError, ValueError):
     """Raised on malformed input to decode or encode."""
 
 

@@ -35,21 +35,44 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pysidtracker import SidImage
+from pysidtracker import CodePattern, SidImage, find_code_first
+from pysidtracker import registers as reg
 
 LOAD_ADDRESS = 0x1800
 SNAPSHOT_END = 0x7167
 SNAPSHOT_SIZE = SNAPSHOT_END - LOAD_ADDRESS  # 22887
 
+
+def _sid_store(opcode: str, register: int) -> str:
+    """Spec tokens for an absolute store to SID register ``$D400 + register``."""
+    addr = reg.SID_BASE + register
+    return f"{opcode} {addr & 0xFF:02X} {addr >> 8:02X}"
+
+
 # defMON player SID-write-band signature (the $1022 play body): loads the
 # V1/V2 pulse+freq operands and writes $D400..$D406, ending in a JMP. This
-# is the same anchor sidid keys "DefMon" on. ``None`` entries are wildcard
-# bytes (per-tune relocated operands / immediate values).
-_SIG_TOKENS = (
-    "A2 ?? A9 ?? 8E 02 D4 8D 03 D4 A2 ?? A9 ?? 8E 00 D4 8D 01 D4 "
-    "A2 ?? A0 ?? A9 ?? ?? ?? 8E 06 D4 8C 05 D4 8D 04 D4 4C"
-).split()
-SIGNATURE: tuple = tuple(None if t == "??" else int(t, 16) for t in _SIG_TOKENS)
+# is the same anchor sidid keys "DefMon" on. ``??`` tokens are wildcard bytes
+# (per-tune relocated operands / immediate values); the SID write targets are
+# derived from ``pysidtracker.registers`` rather than baked-in address literals.
+_SIG_SPEC = " ".join(
+    (
+        "A2 ?? A9 ??",
+        _sid_store("8E", 2),  # STX $D402
+        _sid_store("8D", 3),  # STA $D403
+        "A2 ?? A9 ??",
+        _sid_store("8E", 0),  # STX $D400
+        _sid_store("8D", 1),  # STA $D401
+        "A2 ?? A0 ?? A9 ?? ?? ??",
+        _sid_store("8E", 6),  # STX $D406
+        _sid_store("8C", 5),  # STY $D405
+        _sid_store("8D", 4),  # STA $D404
+        "4C",  # JMP
+    )
+)
+_SIG_PATTERN = CodePattern(_SIG_SPEC)
+# Public masked-token tuple (``None`` == wildcard), derived from the same spec
+# the CodePattern compiles, for corpus discovery / prefilter helpers.
+SIGNATURE: tuple = tuple(None if t == "??" else int(t, 16) for t in _SIG_SPEC.split())
 
 # The runtime data base sits a fixed distance above the signature site
 # (the play body at $1022 -> data base $1800 in the canonical, non-relocated
@@ -68,25 +91,13 @@ _SIDTAB_BANK = 0x5F00
 def find_signature(mem, start: int = 0, end: int = 0x10000) -> int:
     """Return the address of defMON's replay signature in ``mem``, or ``-1``.
 
-    ``mem`` is a 64 KiB image (e.g. :attr:`SidImage.mem`).
+    ``mem`` is a 64 KiB image (e.g. :attr:`SidImage.mem`). The masked scan is
+    delegated to :func:`pysidtracker.find_code_first` over the shared
+    :class:`~pysidtracker.CodePattern`.
     """
-    sig = SIGNATURE
-    n = len(sig)
-    last = min(end, len(mem)) - n
-    for addr in range(start, last):
-        ok = True
-        for i, want in enumerate(sig):
-            if want is not None and mem[addr + i] != want:
-                ok = False
-                break
-        if ok:
-            return addr
-    return -1
-
-
-def is_defmon_replay(image: SidImage) -> bool:
-    """True if ``image`` contains defMON's replay signature."""
-    return find_signature(image.mem) >= 0
+    image = SidImage(bytearray(mem), 0, len(mem), None, b"", b"")
+    match = find_code_first(image, _SIG_PATTERN, start=start, end=end)
+    return match.addr if match is not None else -1
 
 
 def _reconstruct(mem, data_base: int) -> bytearray:
@@ -182,10 +193,10 @@ def depack_replay(image: SidImage) -> Optional[bytes]:
     be mapped to the editor layout (a small number of HVSC tunes use a newer
     packer variant with a compact / indirect data layout).
     """
-    sig = find_signature(image.mem)
-    if sig < 0:
+    match = find_code_first(image, _SIG_PATTERN, start=0)
+    if match is None:
         return None
-    data_base = sig + _DATA_BASE_FROM_SIGNATURE
+    data_base = match.addr + _DATA_BASE_FROM_SIGNATURE
     snap = _reconstruct(image.mem, data_base)
     if not _has_pattern_data(snap):
         return None

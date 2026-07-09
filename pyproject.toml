@@ -26,7 +26,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["pysidtracker>=0.1"]
+dependencies = ["pysidtracker>=0.2"]
 
 [project.optional-dependencies]
 wav = ["pyresidfp", "numpy"]

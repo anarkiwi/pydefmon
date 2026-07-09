@@ -30,10 +30,10 @@ from pydefmon.defmon import (
     STANDARD_SNAPSHOT_SIZE,
 )
 
-from tests._support import find_defmon_sids, hvsc_root
+from tests._support import resolve_corpus
 
-# Below this many DefMon tunes we assume a partial HVSC checkout and skip
-# rather than assert on an unrepresentative sample.
+# Below this many DefMon tunes we assume the mirror is unreachable (offline
+# runner) and skip rather than assert on an unrepresentative sample.
 _MIN_CORPUS = 20
 # Marker in the DefmonError message for the unsupported compact/indirect
 # packer variant (vs a genuine parse failure).
@@ -71,17 +71,15 @@ class TestHvscDefmonSidCorpus(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        root = hvsc_root()
-        if root is None:
-            raise unittest.SkipTest(
-                "local HVSC tree not found; set $HVSC to the C64Music dir "
-                "to run the DefMon .sid corpus test"
-            )
-        cls.tunes = find_defmon_sids(root)
+        # Resolve tunes via the repo fetch path: local $HVSC tree if set,
+        # otherwise fetch each listed DefMon .sid from the HVSC mirror into
+        # the gitignored tunecache (cached across CI runs). Tune bytes are
+        # never committed.
+        cls.tunes = [path for _rel, path in resolve_corpus()]
         if len(cls.tunes) < _MIN_CORPUS:
             raise unittest.SkipTest(
-                f"only {len(cls.tunes)} DefMon .sid found under {root} "
-                f"(< {_MIN_CORPUS}); looks like a partial HVSC checkout"
+                f"only {len(cls.tunes)} DefMon .sid resolved (< {_MIN_CORPUS}); "
+                "HVSC mirror unreachable and no local $HVSC tree"
             )
 
     def test_every_defmon_sid_recognised_and_read(self):

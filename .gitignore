@@ -216,3 +216,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# HVSC tunes fetched at test-time (never committed)
+build/tunecache/

@@ -19,10 +19,18 @@ pip install pydefmon[wav]     # adds pyresidfp + numpy for WAV render
 
 ## Quick start
 
+pydefmon reads both containers a defMON tune ships in: the `.prg`
+editor workfile defMON saves, and the PSID/RSID `.sid` *replay* files
+HVSC distributes (the packed, relocatable player + compacted tune
+data). `DefmonSong.from_bytes` / `DefmonSong.from_file` /
+`DefmonSidParser().read` dispatch on the container automatically. See
+[`docs/SPEC.md`](docs/SPEC.md#6-psidrsid-sid-replay-container) for the
+`.sid` layout and its one known unsupported packer variant.
+
 ```python
 from pydefmon import DefmonSong, DefmonPlayer, PatternEvent
 
-# Read / edit / write tunes
+# Read / edit / write tunes (.prg editor workfile or .sid replay)
 song = DefmonSong.from_file("tune.prg")
 print(song.pattern_events(0)[:4])
 print(song.sidtab_row(0))

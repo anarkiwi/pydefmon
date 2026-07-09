@@ -309,7 +309,52 @@ match the live binary even after editor activity.
 
 ---
 
-## 5. Out of scope
+## 6. PSID/RSID `.sid` replay container
+
+HVSC ships defMON tunes not as `.prg` editor workfiles but as PSID/RSID
+`.sid` *replay* files: a relocatable player plus the tune's data,
+produced by defMON's packer. This is a different container from the
+`.prg` workfile — there is no `$D6C9` RLE stream. `pydefmon`'s public
+reader (`DefmonSong.from_bytes` / `from_file`, `DefmonSidParser.read`)
+dispatches on the `PSID`/`RSID` magic and reconstructs the same
+`$1800..$7166` runtime image the `.prg` path produces, so
+`DefmonPlayer` and every region accessor work identically afterwards.
+`DefmonSidParser.recognize()` finds defMON's player signature (the
+`$1022` SID-write band — the same anchor sidid keys `DefMon` on), so
+`detect()` locates the replay even when it is relocated.
+
+The replay embeds the player's runtime data tables directly rather than
+as a saved image, and stores pattern bodies and sidTAB rows *compacted*
+(variable length, tightly packed) addressed through pointer tables. The
+reader (`pydefmon._sid_format`) re-expands them into the editor's fixed
+`$1F00` / `$5F00` strides:
+
+* The runtime data base `DB` sits a fixed `$7DE` bytes above the
+  signature site (`$1022 + $7DE = $1800` for a non-relocated player;
+  player and data relocate together, so the delta is invariant).
+* `DB+$000` / `DB+$100` — per-sidTAB-row pointer lo/hi. Non-zero hi =
+  the *absolute* address of that row's compacted body (re-expanded to
+  `$5F00 + Y*15`, the row marked active `$11` so `unpacked_snapshot()`
+  materialises the pointer); zero hi = a JP source whose lo byte is the
+  target row index.
+* `DB+$200` / `DB+$280` — per-pattern pointer lo/hi (absolute address
+  of the pattern's compacted body, re-expanded to `$1F00 + n*$80`).
+* `DB+$300` / `$400` / `$500` — V1/V2/V3 arrangers (verbatim).
+* `DB+$600` — per-sidTAB-row DL bytes (verbatim).
+
+**Coverage.** Every DefMon `.sid` in HVSC that sidid identifies (106
+tunes as of HVSC #82) is recognised. All but a small set decode to a
+structurally sound `DefmonSong`. The exceptions are four Goto80 tunes
+(`Evil_Wizard_2`, `Rent-A-Cop`, `Rent-A-Cop_Reloaded`,
+`Rent-A-Cop_Reloaded_title`) built with a newer packer variant that
+lays its data out compactly behind zero-page-indirect addressing rather
+than the absolute-indexed tables above; the reader recognises them but
+raises `DefmonError` ("compact/indirect packer variant") rather than
+fabricate a song. `tests/test_hvsc_sid_corpus.py` asserts the whole
+corpus recognises and that each tune either decodes soundly or raises
+that specific error; it `skipTest`s when `$HVSC` is unset.
+
+## 7. Out of scope
 
 * **SID#2 (V3..V5)**: defMON's current SAVE drops SID#2 patterns;
   `pydefmon` is SID#1 only.

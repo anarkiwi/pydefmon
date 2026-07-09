@@ -69,6 +69,7 @@ from pydefmon._load_format import (
     decode_load_stream,
     encode_ram_block,
 )
+from pydefmon._sid_format import depack_replay, find_signature
 
 LOAD_ADDRESS = LOAD_ADDR
 STANDARD_SNAPSHOT_END = 0x7167
@@ -141,7 +142,18 @@ class DefmonSong:
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> "DefmonSong":
-        """Parse a complete PRG file (load address + body)."""
+        """Parse a defMON tune from raw container bytes.
+
+        Handles both containers defMON tunes ship in:
+
+        * a ``.prg`` editor workfile (``$1800`` load address + ``$D6C9``
+          RLE body) -- the format defMON's editor saves; and
+        * a PSID/RSID ``.sid`` *replay* file (the packed, relocatable
+          player + compacted tune data HVSC ships), dispatched to
+          :meth:`from_sid_bytes`.
+        """
+        if raw[:4] in (b"PSID", b"RSID"):
+            return cls.from_sid_bytes(raw)
         if len(raw) < 4:
             raise DefmonError("file too short to contain a load address + body")
         load_addr = raw[0] | (raw[1] << 8)
@@ -175,6 +187,33 @@ class DefmonSong:
     def from_file(cls, path: str) -> "DefmonSong":
         with open(path, "rb") as f:
             return cls.from_bytes(f.read())
+
+    @classmethod
+    def from_sid_bytes(cls, raw: bytes) -> "DefmonSong":
+        """Parse a defMON tune from a PSID/RSID ``.sid`` replay file.
+
+        HVSC ships defMON tunes as PSID/RSID replay images (a relocatable
+        player plus the tune's compacted data), a different container from
+        the ``.prg`` editor workfile :meth:`from_bytes` decodes. The replay
+        embeds the runtime data tables directly (no ``$D6C9`` RLE stream);
+        :func:`pydefmon._sid_format.depack_replay` recognises defMON's
+        player signature and re-expands the compacted pattern bodies and
+        sidTAB rows into the editor-layout runtime image this class models.
+
+        Raises :class:`DefmonError` if ``raw`` is not a recognised defMON
+        replay (no player signature) or uses a packer variant whose compact
+        data layout cannot be mapped to the editor layout.
+        """
+        image = SidImage.from_bytes(raw)
+        snapshot = depack_replay(image)
+        if snapshot is None:
+            if find_signature(image.mem) < 0:
+                raise DefmonError("not a defMON replay (player signature not found)")
+            raise DefmonError(
+                "unrecognised defMON replay data layout "
+                "(compact/indirect packer variant not supported)"
+            )
+        return cls(snapshot)
 
     # ---- serialization ----
 
@@ -1341,12 +1380,18 @@ class SidcallFrame:
 
 
 class DefmonSidParser(BaseSidParser):
-    """:class:`pysidtracker.BaseSidParser` adapter for defMON ``.prg`` tunes.
+    """:class:`pysidtracker.BaseSidParser` adapter for defMON tunes.
 
-    :meth:`parse` delegates to :meth:`DefmonSong.from_bytes`; the inherited
-    :meth:`read` gives the shared path/bytes/file-like entry point. defMON
-    tunes carry no fixed static byte signature, so :meth:`recognize` is left
-    as the base no-op (returns ``None``).
+    :meth:`parse` delegates to :meth:`DefmonSong.from_bytes`, which accepts
+    both the ``.prg`` editor workfile and the PSID/RSID ``.sid`` replay
+    container; the inherited :meth:`read` gives the shared
+    path/bytes/file-like entry point.
+
+    The ``.prg`` editor workfile carries no static signature, but the
+    ``.sid`` replay does (defMON's player SID-write band), so
+    :meth:`recognize` returns the signature site for a replay image --
+    enabling the inherited :meth:`detect` to locate a defMON replay even
+    when it is packed / relocated behind an init routine.
     """
 
     error_class: type = DefmonError
@@ -1354,5 +1399,6 @@ class DefmonSidParser(BaseSidParser):
     def parse(self, data: bytes, **kwargs: Any) -> DefmonSong:
         return DefmonSong.from_bytes(data)
 
-    def recognize(self, image: SidImage) -> None:  # pylint: disable=unused-argument
-        return None
+    def recognize(self, image: SidImage) -> "int | None":
+        addr = find_signature(image.mem)
+        return addr if addr >= 0 else None

@@ -61,7 +61,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from pysidtracker import BaseSidParser, SidError, SidImage
+from pysidtracker import BaseSidParser, SidError, SidImage, parse_prg
+from pysidtracker.registers import PAL_CLOCK_HZ
 
 from pydefmon._load_format import (
     CodecError,
@@ -162,13 +163,12 @@ class DefmonSong:
             return cls.from_sid_bytes(raw)
         if len(raw) < 4:
             raise DefmonError("file too short to contain a load address + body")
-        load_addr = raw[0] | (raw[1] << 8)
+        load_addr, body = parse_prg(raw)
         if load_addr != LOAD_ADDRESS:
             raise DefmonError(
                 f"unexpected load address ${load_addr:04X}, "
                 f"expected ${LOAD_ADDRESS:04X}"
             )
-        body = raw[2:]
         # Trailer bytes encode dest_lo and dest_hi_offset.
         dest_lo = body[-2]
         dest_hi = body[-1] + 0x18
@@ -1274,7 +1274,7 @@ class PatternEvent:
         0xFFFF,
     )
 
-    SID_PAL_CLOCK_HZ = 985248
+    SID_PAL_CLOCK_HZ = PAL_CLOCK_HZ
 
     def sid_freq_word(self) -> "int | None":
         """Return the 16-bit SID freq word the player will latch for

@@ -22,6 +22,7 @@ from typing import Iterator
 
 from pysidtracker.reglog import (  # re-exported for the shared py* surface
     DEFAULT_WRITE_SPACING,
+    SID_REG_COUNT,
     RegWrite,
     frame_writes,
     read_reglog,
@@ -48,7 +49,7 @@ __all__ = [
 DEFAULT_MAX_FRAMES = 50 * 60
 
 # SID register file size ($D400..$D418): 25 registers.
-SID_REGISTERS = 0x19
+SID_REGISTERS = SID_REG_COUNT
 
 
 def iter_register_writes(

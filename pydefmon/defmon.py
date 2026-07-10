@@ -138,6 +138,11 @@ class DefmonSong:
         buf = bytearray(STANDARD_SNAPSHOT_SIZE)
         buf[: len(snapshot)] = snapshot
         self.snapshot: bytearray = buf
+        # Original container bytes this song was parsed from (a PSID/RSID
+        # replay, or a ``.prg`` workfile). Empty for from-scratch authoring.
+        # A replay carries the player, so its play-routine cadence can be
+        # derived by tracing init; a workfile cannot.
+        self.image_bytes: bytes = b""
 
     # ---- construction ----
 
@@ -182,6 +187,7 @@ class DefmonSong:
         for addr, val in writes.items():
             if LOAD_ADDRESS <= addr < LOAD_ADDRESS + STANDARD_SNAPSHOT_SIZE:
                 song.snapshot[addr - LOAD_ADDRESS] = val
+        song.image_bytes = bytes(raw)
         return song
 
     @classmethod
@@ -219,7 +225,9 @@ class DefmonSong:
                 "unrecognised defMON replay data layout "
                 "(compact/indirect packer variant not supported)"
             )
-        return cls(snapshot)
+        song = cls(snapshot)
+        song.image_bytes = bytes(raw)
+        return song
 
     # ---- serialization ----
 

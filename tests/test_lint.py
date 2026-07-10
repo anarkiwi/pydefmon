@@ -38,7 +38,7 @@ class TestBlackFormatting(unittest.TestCase):
                 "--workers",
                 "1",
                 "--target-version",
-                "py310",
+                "py311",
                 *[str(p) for p in files],
             ],
             cwd=REPO_ROOT,

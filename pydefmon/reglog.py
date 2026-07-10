@@ -12,7 +12,8 @@ The register index ``reg`` is the SID register OFFSET (``0..$18``) relative to
 ``$D400``, NOT the absolute address. :meth:`DefmonPlayer.play_frame` yields
 ABSOLUTE addresses (``$D400..$D418``); :func:`iter_register_writes` rebases
 them to offsets via :func:`~pysidtracker.reglog.frame_writes`
-(``sid_reg_base=$D400``), keeping defMON's own per-tune NMI cadence.
+(``sid_reg_base=$D400``), keeping the tune's play-routine cadence
+(:func:`pysidtracker.cadence.playroutine_cadence`).
 """
 
 from __future__ import annotations
@@ -41,9 +42,9 @@ __all__ = [
 ]
 
 # Default playback bound: one minute at defMON's ~50 Hz nominal rate.
-# The real per-tune rate comes from the song's CIA-2 timer + sub-frame
-# count (``DefmonPlayer.cycles_per_frame``); ``max_frames`` only bounds
-# the (otherwise looping) log.
+# The real per-tune rate comes from the play-routine cadence
+# (``DefmonPlayer.cycles_per_frame``); ``max_frames`` only bounds the
+# (otherwise looping) log.
 DEFAULT_MAX_FRAMES = 50 * 60
 
 # SID register file size ($D400..$D418): 25 registers.
@@ -60,10 +61,10 @@ def iter_register_writes(
 
     Drives a fresh :class:`DefmonPlayer` over ``song`` for ``max_frames``
     main player ticks (the player loops forever, so ``max_frames`` bounds
-    the log).  ``cycles_per_frame`` defaults to the song's own per-tune
-    player-IRQ interval (``DefmonPlayer.cycles_per_frame`` -- derived from
-    the CIA-2 timer reload + sub-frame count); pass an explicit value to
-    frame the log on a different cadence (e.g. the PAL VBI period a PSID
+    the log).  ``cycles_per_frame`` defaults to the song's own play-routine
+    cadence (``DefmonPlayer.cycles_per_frame`` -- from
+    :func:`pysidtracker.cadence.playroutine_cadence`); pass an explicit value
+    to frame the log on a different cadence (e.g. the PAL VBI period a PSID
     export plays at).  Writes within a frame are spaced ``write_spacing``
     cycles from the frame boundary; frames are ``cycles_per_frame`` apart.
 

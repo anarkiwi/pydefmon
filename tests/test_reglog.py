@@ -15,6 +15,8 @@ import os
 import unittest
 from pathlib import Path
 
+from pysidtracker import SidParseError
+
 from pydefmon import (
     DefmonSong,
     RegWrite,
@@ -97,7 +99,7 @@ class TestRegLog(unittest.TestCase):
             self.assertEqual(read_reglog(path), writes)
 
     def test_bad_line_raises(self):
-        with self.assertRaises(ValueError):
+        with self.assertRaises(SidParseError):
             read_reglog(io.StringIO("1 2\n"))
 
     def test_regwrite_is_named_triple(self):

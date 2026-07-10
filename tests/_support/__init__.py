@@ -1,11 +1,10 @@
 """Test-only helpers. Not part of the public package."""
 
 import os
-import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+from pysidtracker.testing import TuneFetchError, fetch_tune
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES_DIR = Path(
@@ -26,8 +25,6 @@ HVSC_MIRROR = os.environ.get(
 # tests exercise. Committed (paths only, no tune bytes); drives both the CI
 # cache key and the fetch set.
 CORPUS_LIST = Path(__file__).resolve().parent / "defmon_corpus.txt"
-_FETCH_RETRIES = 3
-_FETCH_BACKOFF = 1.5
 
 
 def corpus_relpaths() -> List[str]:
@@ -45,33 +42,20 @@ def resolve_tune(relpath: str) -> Optional[Path]:
     """Resolve one HVSC tune (relative to ``C64Music``) to a local file.
 
     Prefers the local ``$HVSC`` tree; otherwise serves it from the gitignored
-    tunecache, fetching from :data:`HVSC_MIRROR` (with retries) on a cache
-    miss. Returns ``None`` only if the tune is genuinely unreachable after
-    retries (offline runner) -- callers skip that individual tune.
+    tunecache, fetching from :data:`HVSC_MIRROR` (with retries) on a cache miss
+    via :func:`pysidtracker.testing.fetch_tune`. Returns ``None`` only if the
+    tune is genuinely unreachable (offline runner) -- callers skip that
+    individual tune.
     """
     root = hvsc_root()
     if root is not None:
         local = root / relpath
         if local.is_file():
             return local
-    cached = TUNECACHE_DIR / relpath
-    if cached.is_file():
-        return cached
-    url = f"{HVSC_MIRROR}/{relpath}"
-    for attempt in range(_FETCH_RETRIES):
-        try:
-            with urllib.request.urlopen(url, timeout=30) as resp:
-                data = resp.read()
-        except (urllib.error.URLError, OSError, TimeoutError):
-            if attempt + 1 < _FETCH_RETRIES:
-                time.sleep(_FETCH_BACKOFF * (attempt + 1))
-            continue
-        if data[:4] not in (b"PSID", b"RSID"):
-            return None
-        cached.parent.mkdir(parents=True, exist_ok=True)
-        cached.write_bytes(data)
-        return cached
-    return None
+    try:
+        return fetch_tune(relpath, cache_dir=TUNECACHE_DIR, mirror=HVSC_MIRROR)
+    except TuneFetchError:
+        return None
 
 
 def resolve_corpus() -> List[Tuple[str, Path]]:

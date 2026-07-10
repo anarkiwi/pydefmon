@@ -47,7 +47,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
-from pysidtracker import SidImage
+from pysidtracker import CodePattern, SidImage, find_code_all, find_code_first
 from pysidtracker import registers as reg
 
 from pydefmon._sid_format import (
@@ -72,105 +72,51 @@ _FLAG_GATE_B = 0x20
 _FLAG_GATE_N = 0x10
 
 
-def _match(mem: bytes, addr: int, pat) -> bool:
-    """True if ``mem[addr:]`` matches ``pat`` (ints; ``None`` == wildcard)."""
-    if addr < 0 or addr + len(pat) > len(mem):
-        return False
-    for i, want in enumerate(pat):
-        if want is not None and mem[addr + i] != want:
-            return False
-    return True
-
-
-def _find(mem: bytes, pat, start: int = 0, end: int = 0x10000) -> int:
-    """First address in ``[start, end)`` where ``pat`` matches, or ``-1``."""
-    anchor = next((v for v in pat if v is not None), None)
-    for a in range(start, min(end, len(mem) - len(pat) + 1)):
-        if anchor is not None and mem[a] != pat[0] and pat[0] is not None:
-            continue
-        if _match(mem, a, pat):
-            return a
-    return -1
-
-
-def _u16(mem: bytes, addr: int) -> int:
-    return mem[addr] | (mem[addr + 1] << 8)
-
-
 # Track-stepper idiom (per-voice sidTAB cascade fetch), e.g. defMON-Goto80
 # ``$8ACF``: LDA sidtab_hi,Y / BNE / LDA sidtab_lo,Y / TAY / LDA sidtab_hi,Y /
 # STA $FC / LDA sidtab_dl,Y. The hi/lo/DL table bases are the abs operands.
-#   B9 hh hh  D0 07  B9 ll ll  A8  B9 hh hh  85 FC  B9 dd dd
-_STEPPER = (
-    0xB9,
-    None,
-    None,
-    0xD0,
-    0x07,
-    0xB9,
-    None,
-    None,
-    0xA8,
-    0xB9,
-    None,
-    None,
-    0x85,
-    0xFC,
-    0xB9,
-    None,
-    None,
+_STEPPER = CodePattern(
+    "B9 {sidtab_hi:w} D0 07 B9 {sidtab_lo:w} A8 B9 ?? ?? 85 FC B9 {sidtab_dl:w}"
 )
 
 # Orderlist idiom (per-voice pattern-pointer fetch), e.g. ``$88F8``:
 # LDA patptr_lo,X / STA op / LDA patptr_hi,X. Appears once per voice with the
 # same patptr_lo / patptr_hi bases.
-#   BD ll ll  8D oo oo  BD hh hh
-_PATPTR = (0xBD, None, None, 0x8D, None, None, 0xBD, None, None)
+_PATPTR = CodePattern("BD {patptr_lo:w} 8D ?? ?? BD {patptr_hi:w}")
 
 # Per-voice arranger load with jump-skip, e.g. v0 ``$88EC``: LDX arr,Y / BPL.
-#   BE aa aa  10 07
-_ARR_V0 = (0xBE, None, None, 0x10, 0x07)
+_ARR_V0 = CodePattern("BE {arr_v0:w} 10 07")
 
 
 def find_tables(mem: bytes) -> Optional[Dict[str, int]]:
     """Locate the Goto80 engine's data-table bases in ``mem`` (a 64 KiB
     image), or ``None`` if the build's idioms are not present."""
-    st = _find(mem, _STEPPER)
-    if st < 0:
+    st = find_code_first(mem, _STEPPER)
+    if st is None:
         return None
-    sidtab_hi = _u16(mem, st + 1)
-    sidtab_lo = _u16(mem, st + 6)
-    sidtab_dl = _u16(mem, st + 15)
 
-    pp = _find(mem, _PATPTR)
-    if pp < 0:
+    pp = find_code_first(mem, _PATPTR)
+    if pp is None:
         return None
-    patptr_lo = _u16(mem, pp + 1)
-    patptr_hi = _u16(mem, pp + 7)
+    patptr_lo = pp.captures["patptr_lo"]
+    patptr_hi = pp.captures["patptr_hi"]
 
     # The three per-voice arranger LDX arr,Y loads. V0 is the one followed by
     # BPL+7 (jump-skip); V1/V2 are the two LDX arr,Y that directly precede a
     # patptr_lo load (BE aa aa BD patptr_lo).
-    v0 = _find(mem, _ARR_V0)
-    if v0 < 0:
+    v0 = find_code_first(mem, _ARR_V0)
+    if v0 is None:
         return None
-    arr_v0 = _u16(mem, v0 + 1)
+    arr_v0 = v0.captures["arr_v0"]
     lo_b = patptr_lo & 0xFF
     lo_h = (patptr_lo >> 8) & 0xFF
-    arr_after = (0xBE, None, None, 0xBD, lo_b, lo_h)
-    arrs: List[int] = []
-    a = 0
-    while True:
-        a = _find(mem, arr_after, a)
-        if a < 0:
-            break
-        arrs.append(_u16(mem, a + 1))
-        a += 1
+    arr_after = f"BE {{arr:w}} BD {lo_b:02X} {lo_h:02X}"
     # The V0 jump-handler re-loads arr_v0 immediately before a patptr_lo load
     # too, so drop any arr_v0 hits; the first two distinct remaining bases are
     # V1 then V2 (their orderlist loads are contiguous BE arr,Y / BD patptr_lo).
     distinct: List[int] = []
-    for base in arrs:
+    for match in find_code_all(mem, arr_after):
+        base = match.captures["arr"]
         if base != arr_v0 and base not in distinct:
             distinct.append(base)
     if len(distinct) < 2:
@@ -178,9 +124,9 @@ def find_tables(mem: bytes) -> Optional[Dict[str, int]]:
     arr_v1, arr_v2 = distinct[0], distinct[1]
 
     return {
-        "sidtab_lo": sidtab_lo,
-        "sidtab_hi": sidtab_hi,
-        "sidtab_dl": sidtab_dl,
+        "sidtab_lo": st.captures["sidtab_lo"],
+        "sidtab_hi": st.captures["sidtab_hi"],
+        "sidtab_dl": st.captures["sidtab_dl"],
         "patptr_lo": patptr_lo,
         "patptr_hi": patptr_hi,
         "arr_v0": arr_v0,

@@ -92,11 +92,10 @@ def find_signature(mem, start: int = 0, end: int = 0x10000) -> int:
     """Return the address of defMON's replay signature in ``mem``, or ``-1``.
 
     ``mem`` is a 64 KiB image (e.g. :attr:`SidImage.mem`). The masked scan is
-    delegated to :func:`pysidtracker.find_code_first` over the shared
-    :class:`~pysidtracker.CodePattern`.
+    delegated to :func:`pysidtracker.find_code_first`, which now accepts the raw
+    buffer directly, over the shared :class:`~pysidtracker.CodePattern`.
     """
-    image = SidImage(bytearray(mem), 0, len(mem), None, b"", b"")
-    match = find_code_first(image, _SIG_PATTERN, start=start, end=end)
+    match = find_code_first(mem, _SIG_PATTERN, start=start, end=end)
     return match.addr if match is not None else -1
 
 

@@ -61,13 +61,18 @@ import argparse
 import functools
 import json
 import sys
-import wave
 from dataclasses import dataclass
-from datetime import timedelta
 from pathlib import Path
 
-from pysidtracker.cadence import playroutine_cadence
-from pysidtracker.registers import PAL_CYCLES_PER_FRAME
+from pysidtracker.audio import (
+    device_sampling_frequency,
+    render_samples,
+    resolve_device,
+    write_wav,
+)
+from pysidtracker.cadence import cadence_from_latch, playroutine_cadence
+from pysidtracker.registers import SID_BASE, SID_VOICE_OFFSET
+from pysidtracker.reglog import frame_writes
 
 from pydefmon.defmon import (
     DefmonSong,
@@ -76,7 +81,7 @@ from pydefmon.defmon import (
     NOTE_PITCH_LO,
 )
 
-SID_REG_BASE = 0xD400
+SID_REG_BASE = SID_BASE
 
 PATTERN_BANK_BASE = 0x1F00
 PATTERN_STRIDE = 0x80
@@ -505,7 +510,7 @@ class DefmonPlayer:
         latch = self.snapshot[0x715A - LOAD_ADDRESS] | (
             self.snapshot[0x715B - LOAD_ADDRESS] << 8
         )
-        return latch + 1 if latch else PAL_CYCLES_PER_FRAME
+        return cadence_from_latch(latch).cycles_per_call
 
     # ---- runtime-state injection -------------------------------------
 
@@ -743,11 +748,12 @@ class DefmonPlayer:
         _sub_frame_update)."""
         writes: list[tuple[int, int]] = []
         for v_idx, v in enumerate(self.voices):
-            base_pw = SID_REG_BASE + v_idx * 7 + 2
-            base_f = SID_REG_BASE + v_idx * 7 + 0
-            base_sr = SID_REG_BASE + v_idx * 7 + 6
-            base_ad = SID_REG_BASE + v_idx * 7 + 5
-            base_ctrl = SID_REG_BASE + v_idx * 7 + 4
+            base = SID_REG_BASE + SID_VOICE_OFFSET[v_idx]
+            base_pw = base + 2
+            base_f = base + 0
+            base_sr = base + 6
+            base_ad = base + 5
+            base_ctrl = base + 4
             writes.append((base_pw + 0, v.pulse_lo))
             writes.append((base_pw + 1, v.pulse_hi))
             writes.append((base_f + 0, v.freq_lo))
@@ -1441,6 +1447,11 @@ class DefmonPlayer:
 # ----------------------------------------------------------------------
 
 
+# pyresidfp chip-model names accepted on the CLI, mapped to the shared
+# ``pysidtracker.audio`` model keys.
+_MODEL_KEYS = {"MOS6581": "6581", "MOS8580": "8580"}
+
+
 def render_wav(
     prg_path: Path,
     out_wav: Path,
@@ -1448,68 +1459,63 @@ def render_wav(
     model_name: str = "MOS6581",
     dedupe_writes: bool = True,
 ) -> int:
-    try:
-        import numpy as np
-        from pyresidfp import SoundInterfaceDevice
-        from pyresidfp.sound_interface_device import ChipModel  # type: ignore
-    except ImportError as e:
-        raise SystemExit(f"{e}; install pydefmon[wav]") from e
+    """Render a defMON ``.prg`` to a WAV file via :mod:`pysidtracker.audio`.
 
+    The per-frame SID write stream is framed by the shared
+    :func:`pysidtracker.reglog.frame_writes` (the surface
+    :func:`pydefmon.reglog.iter_register_writes` wraps); the audio is emulated
+    by the shared :func:`pysidtracker.audio.render_samples` (raising
+    :class:`~pysidtracker.errors.AudioUnavailable` when pyresidfp is missing).
+    A defMON-specific ``.csv`` sidecar of the (optionally deduplicated) writes
+    is written alongside the WAV.
+    """
     song = DefmonSong.from_file(str(prg_path))
     player = DefmonPlayer(song)
+    cycles_per_frame = player.cycles_per_frame
 
-    sid = SoundInterfaceDevice(model=getattr(ChipModel, model_name))
-    sid.reset()
-    for r in range(25):
-        sid.write_register(r, 0)  # type: ignore[arg-type]
-    sid.clock(timedelta(seconds=0.05))
+    device = resolve_device(model=_MODEL_KEYS[model_name])
+    clock_frequency = float(device.clock_frequency)
+    n_frames = max(1, int(seconds * clock_frequency / cycles_per_frame))
 
-    cycles_per_sec = sid.clock_frequency
-    seconds_per_frame = player.cycles_per_frame / cycles_per_sec
-    n_frames = int(seconds / seconds_per_frame)
-
-    # Post-reset every register reads zero; seed last_vals so the first
-    # frame's no-op writes get suppressed too.
+    # Frame the player's per-frame writes through the shared register-log
+    # surface, then regroup into per-frame ``(reg, val)`` lists for the
+    # emulator while building the deduplicated CSV sidecar (dedupe is
+    # defMON-specific).
+    frames: list[list[tuple[int, int]]] = [[] for _ in range(n_frames)]
     last_vals = [0] * 25
     total_writes = 0
     skipped_writes = 0
     write_log: list[tuple[int, int, int]] = []  # (frame, reg, value)
+    per_frame = (player.play_frame() for _ in range(n_frames))
+    for write in frame_writes(
+        per_frame, cycles_per_frame=cycles_per_frame, sid_reg_base=SID_REG_BASE
+    ):
+        frame_idx = write.clock // cycles_per_frame
+        r, v = write.reg, write.val
+        frames[frame_idx].append((r, v))
+        total_writes += 1
+        if dedupe_writes and last_vals[r] == v:
+            skipped_writes += 1
+            continue
+        last_vals[r] = v
+        write_log.append((frame_idx, r, v))
 
-    chunks: list = []
-    for frame_idx in range(n_frames):
-        for reg, val in player.play_frame():
-            r = reg - SID_REG_BASE
-            if 0 <= r <= 0x18:
-                v = val & 0xFF
-                total_writes += 1
-                if dedupe_writes and last_vals[r] == v:
-                    skipped_writes += 1
-                    continue
-                sid.write_register(r, v)  # type: ignore[arg-type]
-                last_vals[r] = v
-                write_log.append((frame_idx, r, v))
-        samples = sid.clock(timedelta(seconds=seconds_per_frame))
-        chunks.append(np.asarray(samples, dtype=np.int16))
+    samples = render_samples(
+        frames,
+        model=_MODEL_KEYS[model_name],
+        cycles_per_frame=cycles_per_frame,
+        clock_frequency=clock_frequency,
+        device=device,
+    )
+    sr = int(device_sampling_frequency(device))
+    write_wav(out_wav, samples, sr)
 
-    audio = np.concatenate(chunks) if chunks else np.array([], dtype=np.int16)
-    sr = int(sid.sampling_frequency)
-    with wave.open(str(out_wav), "wb") as w:
-        # ``wave.open(..., "wb")`` returns Wave_write; pylint's static
-        # inference treats the return as Wave_read and flags these.
-        # pylint: disable=no-member
-        w.setnchannels(1)
-        w.setsampwidth(2)
-        w.setframerate(sr)
-        w.writeframes(audio.tobytes())
     csv_path = out_wav.with_suffix(".csv")
     with open(csv_path, "w") as f:
         f.write("frame,reg,value\n")
         for frame_idx, r, v in write_log:
             f.write(f"{frame_idx},{r},{v}\n")
-    msg = (
-        f"wrote {out_wav}: {len(audio)} samples "
-        f"({len(audio)/sr:.2f}s @ {sr}Hz, {model_name})"
-    )
+    msg = f"wrote {out_wav}: {len(samples)} samples ({len(samples)/sr:.2f}s @ {sr}Hz, {model_name})"
     if dedupe_writes:
         pct = (skipped_writes / total_writes * 100) if total_writes else 0.0
         msg += (

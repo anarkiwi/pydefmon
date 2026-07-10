@@ -58,12 +58,16 @@ Not modelled (defMON behaviours that pydefmon hard-codes):
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import sys
 import wave
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
+
+from pysidtracker.cadence import playroutine_cadence
+from pysidtracker.registers import PAL_CYCLES_PER_FRAME
 
 from pydefmon.defmon import (
     DefmonSong,
@@ -73,11 +77,6 @@ from pydefmon.defmon import (
 )
 
 SID_REG_BASE = 0xD400
-# defMON installs a CIA-2 Timer A NMI at a tune-specific rate
-# (NOT the 50 Hz PAL raster IRQ). 23546 cyc/NMI (~41.84 Hz on PAL)
-# is the .GLOW WORM rate; per-tune rates are read at runtime from
-# $715A/$715B and used to override this default.
-PAL_CYCLES_PER_FRAME = 23546
 
 PATTERN_BANK_BASE = 0x1F00
 PATTERN_STRIDE = 0x80
@@ -397,10 +396,11 @@ class DefmonPlayer:
 
     Per-frame state read by callers:
 
-    * :attr:`cycles_per_frame` — derived from the tune's CIA-2 timer
-      reload (``$715A/$715B``) and sub-frame count (``$715C``) in the
-      song snapshot. Determines real-time playback rate (~23546 cycles
-      = 41.84 Hz on PAL for .GLOW WORM; varies per tune).
+    * :attr:`cycles_per_frame` — the play-routine call cadence from
+      :func:`pysidtracker.cadence.playroutine_cadence` (the tune's CIA
+      timer latch + 1, or its PAL/NTSC video frame). Determines the
+      real-time playback rate; varies per tune (23546 cycles = 41.84 Hz
+      on PAL for .GLOW WORM).
     * :attr:`sub_frame_count` — number of NMIs per main player tick
       (``$715C``). 1 for most tunes.
     * :attr:`frame_idx` — monotonically increases by 1 per
@@ -423,19 +423,7 @@ class DefmonPlayer:
         self.snapshot = song.unpacked_snapshot()
         self.song = song
 
-        # Per-tune effective player-IRQ cycle interval. defMON installs
-        # a CIA2 Timer A interrupt with the lo/hi bytes at $715A/$715B
-        # ($0A78 LDA $715A; STA $DD04 / LDA $715B; STA $DD05). $715C
-        # holds the sub-frame count: the NMI fires every $715A/$715B
-        # cycles and on every $715C-th NMI it runs the full $1003 tick
-        # (otherwise the sub-frame $1006 path). Effective full-tick
-        # rate = ($715A | $715B<<8) * $715C cycles.
-        cia_lo = self.snapshot[0x715A - LOAD_ADDRESS]
-        cia_hi = self.snapshot[0x715B - LOAD_ADDRESS]
         sub_count = self.snapshot[0x715C - LOAD_ADDRESS] or 1
-        self.cycles_per_frame = (cia_lo | (cia_hi << 8)) * sub_count
-        if self.cycles_per_frame == 0:
-            self.cycles_per_frame = PAL_CYCLES_PER_FRAME
         # Per-tune sub-frame count ($715C). Drives extra cascade
         # ticks per main play_frame, modelling defMON's $1006 sub-frame
         # update that JSRs $1022 (with $10D8 patched) and then JMPs to
@@ -498,6 +486,26 @@ class DefmonPlayer:
         # _sub_frame_update's per-NMI _cutoff_slide_step()). For
         # sub_frame_count==1, emit calls _cutoff_slide_step() directly.
         self.cutoff_d416_emit = self.cutoff_floor
+
+    @functools.cached_property
+    def cycles_per_frame(self) -> int:
+        """CPU cycles between consecutive player-IRQ calls.
+
+        Sourced from :func:`pysidtracker.cadence.playroutine_cadence`, which
+        traces the tune's init to observe whatever installs its play trigger
+        (a CIA/NMI timer latch, ``cycles_per_call = latch + 1``, or a PAL/NTSC
+        video frame). A ``.prg`` editor workfile carries no player to trace, so
+        its cadence is derived directly from the CIA Timer-A latch defMON
+        stores at ``$715A/$715B`` via the same ``latch + 1`` model (falling
+        back to the PAL video frame when the workfile records no latch).
+        """
+        raw = self.song.image_bytes
+        if raw[:4] in (b"PSID", b"RSID"):
+            return playroutine_cadence(raw).cycles_per_call
+        latch = self.snapshot[0x715A - LOAD_ADDRESS] | (
+            self.snapshot[0x715B - LOAD_ADDRESS] << 8
+        )
+        return latch + 1 if latch else PAL_CYCLES_PER_FRAME
 
     # ---- runtime-state injection -------------------------------------
 

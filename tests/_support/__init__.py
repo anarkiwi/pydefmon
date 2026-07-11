@@ -1,10 +1,40 @@
 """Test-only helpers. Not part of the public package."""
 
 import os
+import struct
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from pysidtracker.testing import TuneFetchError, fetch_tune
+
+# A minimal but *runnable* PSID replay: real 6502 code so the DefmonPlayer py65
+# path (init + play + snapshot) is exercised offline, with no copyrighted HVSC
+# material. init seeds volume ($D418=$0F) and V0 control ($D404=$21); play
+# increments V0 freq-lo ($D400) every call, giving a deterministic grid.
+_SYNTH_LOAD = 0x1000
+_SYNTH_PLAY_OFF = 0x20
+_SYNTH_INIT = bytes(
+    [0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x21, 0x8D, 0x04, 0xD4, 0x60]
+)  # LDA #$0F STA $D418  LDA #$21 STA $D404  RTS
+_SYNTH_PLAY = bytes([0xEE, 0x00, 0xD4, 0x60])  # INC $D400  RTS
+
+
+def synthetic_replay() -> bytes:
+    """Return a runnable single-voice PSID replay (see module comment)."""
+    code = bytearray(0x40)
+    code[0 : len(_SYNTH_INIT)] = _SYNTH_INIT
+    code[_SYNTH_PLAY_OFF : _SYNTH_PLAY_OFF + len(_SYNTH_PLAY)] = _SYNTH_PLAY
+    header = bytearray(0x7C)
+    header[0:4] = b"PSID"
+    struct.pack_into(">H", header, 0x04, 2)  # version
+    struct.pack_into(">H", header, 0x06, 0x7C)  # data offset
+    struct.pack_into(">H", header, 0x08, _SYNTH_LOAD)  # load address
+    struct.pack_into(">H", header, 0x0A, _SYNTH_LOAD)  # init address
+    struct.pack_into(">H", header, 0x0C, _SYNTH_LOAD + _SYNTH_PLAY_OFF)  # play
+    struct.pack_into(">H", header, 0x0E, 1)  # songs
+    struct.pack_into(">H", header, 0x10, 1)  # start song
+    return bytes(header + code)
+
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 FIXTURES_DIR = Path(

@@ -10,11 +10,9 @@ Top-level API:
   / timbre / filter program; bitmap-encoded columns).
 * :class:`SidcallFrame` — one row of a sidTAB cascade walk
   starting from a given row index.
-* :class:`DefmonPlayer` — frame-accurate per-NMI player IRQ model
-  (byte-faithful against the real defMON binary running in
-  asid-vice, verified by the integration test suite).
-* :class:`Voice` — per-voice runtime record exposed for
-  introspection / programmatic poking.
+* :class:`DefmonPlayer` — per-frame SID register player that runs
+  the tune's own relocatable replay on a py65 6502 (byte-exact
+  against the sidtrace oracle over real HVSC tunes).
 
 Constants:
 
@@ -42,7 +40,7 @@ from pydefmon.defmon import (
     STANDARD_SNAPSHOT_END,
     STANDARD_SNAPSHOT_SIZE,
 )
-from pydefmon.defmon_player import DefmonPlayer, Voice
+from pydefmon.defmon_player import DefmonPlayer, render_wav
 from pydefmon.reglog import (
     RegWrite,
     iter_register_writes,
@@ -64,11 +62,11 @@ __all__ = [
     "SidtabRow",
     "STANDARD_SNAPSHOT_END",
     "STANDARD_SNAPSHOT_SIZE",
-    "Voice",
     "__version__",
     "iter_register_writes",
     "read_reglog",
+    "render_wav",
     "write_reglog",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.7.0"

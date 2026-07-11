@@ -219,3 +219,6 @@ __marimo__/
 
 # HVSC tunes fetched at test-time (never committed)
 build/tunecache/
+
+# sidtrace oracle cache (HVSC tunes + oracle CSVs; never committed)
+.oracle-cache/

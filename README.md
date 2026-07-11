@@ -4,16 +4,17 @@
 [![PyPI](https://img.shields.io/pypi/v/pydefmon.svg)](https://pypi.org/project/pydefmon/)
 
 Pure-Python reader, writer, and player for
-[defMON](https://csdb.dk/release/?id=199997) C64 tracker tunes. The player emits
-the same per-frame SID register writes as the real defMON binary, verified
-byte-for-byte against it running in `anarkiwi/headlessvice`.
+[defMON](https://csdb.dk/release/?id=199997) C64 tracker tunes. `DefmonPlayer`
+runs a tune's own relocatable replay on a py65 6502 and emits the per-frame SID
+register writes, verified byte-exact against the
+[`sidtrace`](https://github.com/anarkiwi/sidtrace) `sidplayfp` oracle over real
+HVSC tunes.
 
-Consumes `.sid` files (PSID/RSID containers) and bare `.prg` images through the
-shared [`pysidtracker`](https://github.com/anarkiwi/pysidtracker) base: it reads
-both the `.prg` editor workfile defMON saves and the packed, relocatable PSID/RSID
-`.sid` *replay* files HVSC distributes, reconstructing the same runtime image
-either way — the relocatable player is located by signature and container headers
-are not trusted.
+Reads `.sid` files (PSID/RSID containers) and bare `.prg` editor workfiles
+through the shared [`pysidtracker`](https://github.com/anarkiwi/pysidtracker)
+base, reconstructing the same runtime image either way — the relocatable player
+is located by signature and container headers are not trusted. The player runs
+the replay embedded in a `.sid`.
 
 ## Install
 
@@ -27,15 +28,16 @@ pip install pydefmon[wav]     # adds pyresidfp + numpy for WAV render
 ```python
 from pydefmon import DefmonSong, DefmonPlayer
 
-song = DefmonSong.from_file("tune.sid")    # .sid replay or .prg workfile; auto-dispatch
+# Read / edit a tune (either container auto-dispatches on magic).
+song = DefmonSong.from_file("tune.sid")
 print(song.pattern_events(0)[:4])
 print(song.sidtab_row(0))
 
-# Render per-frame SID writes.
-player = DefmonPlayer(song)
-for _ in range(600):
-    for reg, value in player.play_frame():  # reg is an absolute $D400..$D418 address
-        ...
+# Play a .sid replay: per-frame SID register writes / grid.
+player = DefmonPlayer("tune.sid")           # bytes, path, or SidImage
+for reg, value in player.play_frame():      # reg is a 0..24 SID register offset
+    ...
+grid = DefmonPlayer("tune.sid").render_grid(250)   # 250 x 25-register frames
 ```
 
 See [docs/usage.md](docs/usage.md) for editing, the register-write API, and the

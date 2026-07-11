@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydefmon"
-version = "0.5.0"
+version = "0.7.0"
 description = "Python implementation of the defMON C64 tracker's file format and register-level player."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
@@ -25,12 +25,21 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["pysidtracker>=0.5.0", "py65"]
+dependencies = ["pysidtracker>=0.6.0", "py65"]
 
 [project.optional-dependencies]
 wav = ["pyresidfp", "numpy"]
-dev = ["pytest", "pytest-xdist", "pytest-cov", "pylint", "black", "build", "twine"]
-integration = ["defmon-driver==0.3.0", "vice-driver==0.3.0"]
+# Decompress the sidtrace oracle's zstd CSV traces (oracle comparison tests).
+dev = [
+    "pytest",
+    "pytest-xdist",
+    "pytest-cov",
+    "pylint",
+    "black",
+    "build",
+    "twine",
+    "zstandard",
+]
 
 [project.urls]
 Homepage = "https://github.com/anarkiwi/pydefmon"
@@ -42,6 +51,13 @@ pydefmon-player = "pydefmon.defmon_player:main"
 
 [tool.setuptools]
 packages = ["pydefmon"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Oracle comparison tests need Docker + network; run them in a dedicated CI job
+# via ``-m oracle`` (excluded from the default suite).
+addopts = "-ra -n auto -m 'not oracle'"
+markers = ["oracle: byte-exact comparison against the sidtrace Docker oracle"]
 
 [tool.black]
 target-version = ["py311"]

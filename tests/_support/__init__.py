@@ -2,10 +2,11 @@
 
 import os
 import struct
+import tempfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from pysidtracker.testing import TuneFetchError, fetch_tune
+from pysidtracker.testing import TuneFetchError, fetch_prgs, fetch_tune
 
 # A minimal but *runnable* PSID replay: real 6502 code so the DefmonPlayer py65
 # path (init + play + snapshot) is exercised offline, with no copyrighted HVSC
@@ -148,16 +149,59 @@ def find_defmon_sids(root: Path) -> List[Path]:
     return sorted(out)
 
 
-def fixture_path(name: str) -> Path:
-    """Return the path to a fixture file, or raise FileNotFoundError.
+# The official defMON V20201008 release on csdb (https://csdb.dk/release/?id=196474),
+# a .zip of two .d64 disk images. The editor .prg workfiles it ships are the only
+# fixtures that exercise the $D6C9 LOAD codec and the .prg reader/edit/round-trip
+# API; HVSC carries the .sid replays, not these. The tunes are copyright and never
+# committed, so they are fetched + extracted into the gitignored cache on demand.
+DEFMON_RELEASE_URL = "https://csdb.dk/getinternalfile.php/204680/defmon-20201008.zip"
+DEFMON_RELEASE_D64 = "defmon-withtunes.d64"
 
-    Tests should call this and ``skipTest`` on miss — fixtures are not
-    redistributed (run ``python -m tools.fetch_fixtures`` to populate).
+
+def _sanitize(name: str) -> str:
+    """Map a PETSCII disk filename to a stable lowercase ``[a-z0-9_]`` stem."""
+    keep = [c if c.isalnum() else "_" for c in name.lstrip(".").strip().lower()]
+    out = "".join(keep).strip("_")
+    while "__" in out:
+        out = out.replace("__", "_")
+    return out or "tune"
+
+
+def _atomic_write(dst: Path, data: bytes) -> None:
+    """Write ``data`` to ``dst`` via a temp file + rename (xdist-safe)."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(dst.parent), prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+        os.replace(tmp, dst)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def fixture_path(name: str) -> Path:
+    """Return the path to a defMON ``.prg`` workfile fixture, or raise.
+
+    A local file under ``$PYDEFMON_FIXTURES_DIR`` wins (offline / a warm CI
+    cache); otherwise the requested ``.prg`` is extracted from the csdb defMON
+    release ``.d64`` (fetched + cached via :func:`pysidtracker.testing.fetch_prgs`)
+    on first use. Raises :class:`FileNotFoundError` when the fixture can't be
+    produced -- an unreachable release (offline) or a non-``.prg`` name -- so
+    callers ``skipTest``.
     """
-    p = FIXTURES_DIR / name
-    if not p.exists():
-        raise FileNotFoundError(
-            f"missing fixture {name!r} under {FIXTURES_DIR}; "
-            "run `python -m tools.fetch_fixtures` to populate"
-        )
-    return p
+    dst = FIXTURES_DIR / name
+    if dst.exists():
+        return dst
+    if name.endswith(".prg"):
+        try:
+            prgs = fetch_prgs(
+                DEFMON_RELEASE_URL, cache_dir=FIXTURES_DIR, member=DEFMON_RELEASE_D64
+            )
+        except TuneFetchError as exc:
+            raise FileNotFoundError(f"cannot fetch defMON fixtures: {exc}") from exc
+        for f in prgs:
+            if f"{_sanitize(f.name)}.prg" == name:
+                _atomic_write(dst, f.prg)
+                return dst
+    raise FileNotFoundError(f"no fixture {name!r} in the defMON release")

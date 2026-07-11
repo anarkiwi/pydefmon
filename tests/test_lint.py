@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-LINT_DIRS = ("pydefmon", "tests", "tools")
+LINT_DIRS = ("pydefmon", "tests")
 
 
 def _python_files():

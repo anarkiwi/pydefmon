@@ -48,9 +48,12 @@ reference.
 
 ```bash
 pip install -e ".[dev]"
-python -m tools.fetch_fixtures        # one-time: populate build/fixtures/
-python -m unittest discover -s tests -t .
+pytest -n auto
 ```
+
+Tests that need real defMON tunes fetch + cache them on demand (the copyright
+editor workfiles from the csdb release, the HVSC replays for the corpus) and
+skip when offline; nothing needs pre-populating.
 
 ## License
 

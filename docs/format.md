@@ -9,13 +9,12 @@ defMON is a C64 tracker (csdb.dk release 199997). `pydefmon` reads both the
 `.prg` editor workfile and the PSID/RSID `.sid` replay container, reconstructing
 the same `$1800..$7166` runtime RAM image either way, and plays it frame-accurately.
 
-The [live-VICE integration test](../tests/integration/test_player_vs_real.py)
-pins `pydefmon`'s `DefmonPlayer` against the real defMON binary running in
-`anarkiwi/headlessvice` and asserts byte-for-byte per-frame SID-register-write
-equivalence, so the player model is authoritative for behaviour and this
-document is authoritative for the byte layout. The .GLOW WORM tune (by Tomek
-Grynfelder, in the upstream defMON release on csdb.dk) is the canonical
-real-tune fixture; tunes are not redistributed with `pydefmon` (run
+`DefmonPlayer` plays a `.sid` by running the tune's own relocatable replay on a
+py65 6502; the [oracle test](../tests/test_oracle_hvsc.py) asserts its per-frame
+SID-register grid matches the [`sidtrace`](https://github.com/anarkiwi/sidtrace)
+`sidplayfp` oracle byte-for-byte over real HVSC tunes. This document is
+authoritative for the byte layout the reader/writer (`DefmonSong`) exposes;
+tunes are not redistributed with `pydefmon` (run
 `python -m tools.fetch_fixtures` to populate `build/fixtures/`).
 
 ## Container and detection notes
@@ -227,9 +226,11 @@ the first STop, JP loopback, or `max_frames`.
 
 ## Player and playback notes
 
-The player (`pydefmon.DefmonPlayer`) runs at a tune-specific rate. defMON
-installs a CIA-2 Timer-A NMI with reload `(($715A | $715B << 8)) * $715C` cycles
-(`$715A/$715B` = per-NMI cycle count, `$715C` = sub-frame ratio). The CIA fires
+`DefmonPlayer` does not model any of the following in Python — it runs the
+tune's own replay on a py65 6502, so all of it happens as real machine code.
+These notes document what defMON's replay does, for reference. The play cadence
+is a tune-specific CIA-2 Timer-A NMI with reload `(($715A | $715B << 8)) * $715C`
+cycles (`$715A/$715B` = per-NMI cycle count, `$715C` = sub-frame ratio), firing
 `sub_frame_count` NMIs per main player tick.
 
 * **All NMIs** run the SID-write band (24 writes), the global `$D417`/`$D418`/
@@ -318,39 +319,21 @@ The `ACID` sidTAB column carries a 16-bit `(low, high)` command:
   opcode := SBC (subtract) and `step_hi := high & $3F`. Else opcode := ADC (add)
   and `step_hi := high & $7F`.
 
-The `CP` sidTAB column sets `cutoff_extra` directly.
+The `CP` sidTAB column sets the cutoff-extra add directly.
 
-### Bringing pydefmon up against a real C64
+### Oracle scope
 
-`DefmonPlayer.import_runtime_state(ram, base_addr)` lets you bridge from a live
-VICE / hardware RAM capture into pydefmon, then resume playback from the
-captured state. The integration test uses this to compare pydefmon's per-frame
-writes against real defMON: it halts the live binary at the player IRQ entry,
-snapshots RAM, seeds pydefmon's player from the snapshot, and asserts byte
-equality on each subsequent frame.
-
-The needed snapshot range is `$1019..$7166` — covers per-voice operand slots
-(`$1019..$10AF`), filter globals, cascade state, current_note slots, sidcall
-counters, plus the full snapshot region (`$1800..$7166`) so the JP-marker
-pointer arrays and DL bytes match the live binary even after editor activity.
-
-### Out of scope
-
-* **SID#2 (V3..V5)**: defMON's current SAVE drops SID#2 patterns; `pydefmon` is
-  SID#1 only.
-* **defMON's `$14EE` startup-RNG cutoff variant**: hardcoded to the
-  entropy-bit-clear branch (floor = `$02`, output ASL = NOP).
-* **AF column slide direction**: the bit is stored on the voice but not
-  separately acted on; the active-slide path reads it implicitly through
-  `slide_mode`.
-* **Exomizer-packed `.prg` variants**: decompress externally (`exomizer`) before
-  handing to `pydefmon.DefmonSong`.
+The oracle test verifies byte-exact rendering over single-speed tunes across both
+replay-decode families (standard editor-layout and Goto80 compact-runtime).
+Multi-speed tunes and tunes whose cutoff seeds from the V3 oscillator readback
+(`$D41B/$D41C`) are byte-exact only under a cycle-accurate VICE, not the py65
+model, and are excluded from the oracle set.
 
 ## References
 
 - [defMON](https://csdb.dk/release/?id=199997) (csdb.dk).
-- The .GLOW WORM fixture (Tomek Grynfelder, upstream defMON release).
-- [live-VICE integration test](../tests/integration/test_player_vs_real.py) —
-  byte-for-byte oracle against the real defMON binary in `anarkiwi/headlessvice`.
+- [`sidtrace`](https://github.com/anarkiwi/sidtrace) — the `sidplayfp` register
+  oracle the player is checked against; see
+  [`tests/test_oracle_hvsc.py`](../tests/test_oracle_hvsc.py).
 - [`pysidtracker`](https://github.com/anarkiwi/pysidtracker) — shared
-  container/image/detection base.
+  container/image/detection/player base.

@@ -21,33 +21,31 @@ song.to_file("out.prg")
 
 ## Render per-frame SID writes
 
+`DefmonPlayer` runs the replay embedded in a `.sid` (a `.prg` editor workfile
+carries no player). Construct it from bytes, a path, or a `SidImage`.
+
 ```python
 from pydefmon import DefmonPlayer
 
-player = DefmonPlayer(song)
+player = DefmonPlayer("tune.sid")
 for _ in range(600):
-    writes = player.play_frame()           # list of (reg, value) for one main-tick NMI
+    writes = player.play_frame()           # (reg, value) list; reg is a 0..24 offset
     for reg, value in writes:
-        # reg is an absolute SID register address $D400..$D418
         ...
+
+# Or a whole grid at once (nframes x 25 registers, forward-filled).
+grid = DefmonPlayer("tune.sid").render_grid(250)
 ```
 
-`DefmonPlayer.import_runtime_state()` bridges from a live VICE / hardware RAM
-capture for byte-faithful continuation of a running tune (see
-[format.md](format.md#bringing-pydefmon-up-against-a-real-c64)).
+The player derives from `pysidtracker.MemPlayer`, so `play_frame`,
+`render_grid`, and the register-log surface below all come from the shared base.
 
 ## Command line
 
-Render to WAV (requires the `[wav]` extra):
+Render a `.sid` replay to WAV (requires the `[wav]` extra for the pyresidfp SID):
 
 ```bash
-pydefmon-player path/to/tune.prg /tmp/tune.wav
-```
-
-Dump per-frame SID writes as JSONL without rendering audio:
-
-```bash
-pydefmon-player --dump-writes /tmp/tune.jsonl path/to/tune.prg
+pydefmon-player path/to/tune.sid /tmp/tune.wav --seconds 60 --model 8580
 ```
 
 ## What's in the package
@@ -65,9 +63,11 @@ pydefmon-player --dump-writes /tmp/tune.jsonl path/to/tune.prg
   FV / CP / ACID` high half) plus its companion `jp` and `dl` bytes.
 - [`SidcallFrame`](../pydefmon/defmon.py) — one frame of a cascade walk via
   `DefmonSong.sidcall_frames(start_row)`.
-- [`DefmonPlayer`](../pydefmon/defmon_player.py) — frame-accurate per-NMI player
-  IRQ model. `play_frame()` returns the 24 SID register writes that defMON's
-  `$1022` body would emit for one main player tick. `import_runtime_state()`
-  bridges from a live VICE / hardware RAM capture.
+- [`DefmonPlayer`](../pydefmon/defmon_player.py) — a `pysidtracker.MemPlayer`
+  that runs a `.sid` tune's own relocatable replay on a py65 6502 (with the NMOS
+  illegal opcodes defMON uses) and samples the 25 SID registers per frame.
+  `render_grid(nframes)` and `play_frame()` come from the shared base; byte-exact
+  against the `sidtrace` oracle. `render_wav()` renders to WAV via
+  `pysidtracker.audio`.
 - `iter_register_writes` / `read_reglog` / `write_reglog` / `RegWrite` — the
   shared `py*` register-log surface.

@@ -269,60 +269,6 @@ class TestBuilders(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.song.set_jump(0, target=300)
 
-    def test_set_jump_actually_loops(self):
-        """Regression: ``set_jump`` previously wrote ``0x80`` to V0's
-        arranger array, which the player treats as ``pattern_num = 0``
-        (silent pattern) — not as a jump. The song would walk forward
-        through silent steps instead of looping. With the marker set
-        to ``$FF`` the arranger genuinely loops back."""
-        from pydefmon.defmon_player import DefmonPlayer, SID_REG_BASE
-        from pydefmon.defmon import SidtabRow
-
-        song = DefmonSong()
-        song.set_pattern_events(0, PatternEvent.silent_pattern())
-        # Pattern 1: gate on with note byte 0x18, then 30 delays, ALT.
-        events = [PatternEvent.note_on(0x18, slot_a=1, duration=0)]
-        events += [PatternEvent.delay(0) for _ in range(30)]
-        events.append(PatternEvent.alt_end(duration=0))
-        song.set_pattern_events(1, events)
-        # clear_song_table MUST run before set_dl (it wipes $1E00..$1EFF).
-        song.clear_song_table()
-        # sidTAB row 1: gate-on triangle, STop.
-        raw = SidtabRow.pack({"WGh": 0x41, "AD": 0x09, "SR": 0xA0})
-        off = 0x5F00 - LOAD_ADDRESS + 15
-        for i, b in enumerate(raw):
-            song.snapshot[off + i] = b
-        song.set_dl(1, 0xFF)
-        song.set_jp(1)
-        song.set_step(0, v1=1)
-        song.set_jump(1, target=0, count=0)
-        # Render long enough to cross two pattern cycles. With 31
-        # dur=0 events + ALT(0), the pattern spans 63 fetch frames,
-        # so the V0 freq word should be re-set at both frame 1 and
-        # somewhere around frame 64 (loop iteration).
-        player = DefmonPlayer(song)
-        v0_freq_lo_writes = []
-        for frame in range(200):
-            for reg, val in player.play_frame():
-                if reg == SID_REG_BASE + 0x00:  # $D400 V0 freq lo
-                    v0_freq_lo_writes.append((frame, val))
-        # Expect at least two distinct frames where the freq word is
-        # latched (the initial pattern fire + at least one loop).
-        latch_frames = {f for f, v in v0_freq_lo_writes if v != 0}
-        # The freq is re-emitted every frame the cascade is active,
-        # so what we actually need is: the pattern's note byte (0x18,
-        # whose freq_lo = NOTE_PITCH_LO[0x18]) shows up well past
-        # frame 63 — the only way that happens is if the song looped.
-        from pydefmon.defmon import NOTE_PITCH_LO
-
-        expected_lo = NOTE_PITCH_LO[0x18]
-        self.assertTrue(
-            any(f >= 100 and v == expected_lo for f, v in v0_freq_lo_writes),
-            f"set_jump did not loop: no V0 freq_lo=${expected_lo:02X} "
-            f"write at frame >=100 in {len(v0_freq_lo_writes)} writes "
-            f"({latch_frames=})",
-        )
-
     def test_authoring_round_trip(self):
         self.song.clear_song_table()
         self.song.set_step(0, v1=1)
@@ -388,23 +334,6 @@ class TestOptimize(unittest.TestCase):
         song.set_step(0, v1=1, v2=2, v3=0)
         song.set_jump(1, target=0, count=0)
         return song
-
-    def test_optimize_preserves_trace(self):
-        from pydefmon.defmon_player import DefmonPlayer
-
-        song = self._build_duplicate_song()
-        baseline = []
-        p1 = DefmonPlayer(song)
-        for _ in range(64):
-            baseline.append(tuple(p1.play_frame()))
-        # Rebuild and optimize, then re-render.
-        song2 = self._build_duplicate_song()
-        song2.optimize()
-        observed = []
-        p2 = DefmonPlayer(song2)
-        for _ in range(64):
-            observed.append(tuple(p2.play_frame()))
-        self.assertEqual(baseline, observed)
 
     def test_optimize_merges_duplicate_sidtab_rows(self):
         song = self._build_duplicate_song()

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydefmon"
-version = "0.7.0"
+version = "0.8.0"
 description = "Python implementation of the defMON C64 tracker's file format and register-level player."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
@@ -25,10 +25,9 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["pysidtracker>=0.6.0", "py65"]
+dependencies = ["pysidtracker>=0.8.0"]
 
 [project.optional-dependencies]
-wav = ["pyresidfp", "numpy"]
 # Decompress the sidtrace oracle's zstd CSV traces (oracle comparison tests).
 dev = [
     "pytest",
@@ -47,7 +46,7 @@ Issues = "https://github.com/anarkiwi/pydefmon/issues"
 Source = "https://github.com/anarkiwi/pydefmon"
 
 [project.scripts]
-pydefmon-player = "pydefmon.defmon_player:main"
+pydefmon = "pydefmon.cli:main"
 
 [tool.setuptools]
 packages = ["pydefmon"]
@@ -70,15 +69,10 @@ target-version = ["py311"]
 # C0301/C0302 line-too-long / too-many-lines: long disassembly comments
 #   document the underlying 6502; reformatting them would lose alignment.
 # C0325 superfluous-parens: project style prefers `if not (x & 0x80)`.
-# C0415 import-outside-toplevel: pyresidfp / numpy are optional ([wav]
-#   extra); the lazy import keeps the core package import-cheap.
 # R09xx too-many-*: the player IRQ legitimately has many branches.
-# W1514 unspecified-encoding: open() in WAV/JSONL paths is binary or
-#   ASCII-only; not worth threading encoding= through every callsite.
 disable = [
     "C0103",
     "C0114", "C0115", "C0116",
-    "C0301", "C0302", "C0325", "C0415",
+    "C0301", "C0302", "C0325",
     "R0902", "R0903", "R0904", "R0911", "R0912", "R0913", "R0914", "R0915",
-    "W1514",
 ]

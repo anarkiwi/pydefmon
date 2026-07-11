@@ -2,40 +2,24 @@
 
 The player runs a tune's own relocatable replay on a py65 6502, so a runnable
 synthetic PSID (no copyrighted material) exercises the whole path offline:
-``_init`` / ``_frame`` / snapshot / ``render_grid`` / ``play_frame`` and the WAV
-render (via an injected fake SID). A single real HVSC replay is byte-checked
-against the ``.prg`` reader path when the corpus is reachable.
+``_init`` / ``_frame`` / snapshot / ``render_grid`` / ``play_frame``. A single
+real HVSC replay is byte-checked against the ``.prg`` reader path when the
+corpus is reachable.
 """
 
 from __future__ import annotations
 
 import struct
 import unittest
-import wave
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest import mock
 
 from pysidtracker import SidImage
 
-from pydefmon import DefmonPlayer, DefmonSong, render_wav
-from pydefmon import defmon_player as player_mod
+from pydefmon import DefmonPlayer, DefmonSong
 from pydefmon.defmon import DefmonError
 
 from tests._support import fixture_path, resolve_tune, synthetic_replay
-
-
-class _FakeSid:
-    """Minimal SID double for the audio render path (no pyresidfp needed)."""
-
-    sampling_frequency = 44100.0
-    clock_frequency = 985248.0
-
-    def write_register(self, reg, value):  # pylint: disable=unused-argument
-        pass
-
-    def clock(self, delta):
-        return [0] * max(1, int(delta.total_seconds() * self.sampling_frequency))
 
 
 class TestDefmonPlayer(unittest.TestCase):
@@ -107,27 +91,6 @@ class TestDefmonPlayer(unittest.TestCase):
         # A bare .prg workfile has no init/play routine.
         with self.assertRaises(DefmonError):
             DefmonPlayer(b"\x00\x18" + b"\x00" * 32)
-
-    def test_render_wav_with_injected_device(self):
-        with TemporaryDirectory() as tmp:
-            out = Path(tmp) / "out.wav"
-            render_wav(self.replay, out, seconds=0.05, model="8580", device=_FakeSid())
-            self.assertTrue(out.exists())
-            with wave.open(str(out), "rb") as w:
-                self.assertGreater(w.getnframes(), 0)
-                self.assertEqual(w.getnchannels(), 1)
-
-    def test_cli_main_renders_wav(self):
-        with TemporaryDirectory() as tmp:
-            sid = Path(tmp) / "synth.sid"
-            sid.write_bytes(self.replay)
-            out = Path(tmp) / "out.wav"
-            with mock.patch.object(
-                player_mod, "resolve_device", return_value=_FakeSid()
-            ):
-                rc = player_mod.main([str(sid), str(out), "--seconds", "0.02"])
-            self.assertEqual(rc, 0)
-            self.assertTrue(out.exists())
 
     def test_replay_reading_raster_renders(self):
         # play: LDA $D012 (raster); STA $D400; RTS -> exercises the raster read

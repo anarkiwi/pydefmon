@@ -14,8 +14,8 @@ py65 6502; the [oracle test](../tests/test_oracle_hvsc.py) asserts its per-frame
 SID-register grid matches the [`sidtrace`](https://github.com/anarkiwi/sidtrace)
 `sidplayfp` oracle byte-for-byte over real HVSC tunes. This document is
 authoritative for the byte layout the reader/writer (`DefmonSong`) exposes;
-tunes are not redistributed with `pydefmon` (run
-`python -m tools.fetch_fixtures` to populate `build/fixtures/`).
+tunes are copyright and not redistributed with `pydefmon` -- tests fetch and
+cache them on demand.
 
 ## Container and detection notes
 

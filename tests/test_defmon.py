@@ -1,7 +1,8 @@
 """Unit tests for the ``pydefmon.defmon`` module.
 
-Tests that exercise the .GLOW WORM fixture skip when the fixture is
-not present — run ``python -m tools.fetch_fixtures`` to populate.
+Tests that exercise the .GLOW WORM fixture fetch it from the csdb defMON
+release on demand (see :func:`tests._support.fixture_path`) and skip when it
+is unreachable (offline).
 """
 
 import unittest

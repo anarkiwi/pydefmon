@@ -25,15 +25,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
 
-      - name: Fetch test fixtures
-        run: python -m tools.fetch_fixtures
-
-      - name: Cache HVSC corpus tunes
+      - name: Cache test fixtures (defMON release .prg + HVSC corpus tunes)
         uses: actions/cache@v4
         with:
-          path: build/tunecache
+          path: |
+            build/fixtures
+            build/tunecache
           key: >-
-            tunecache-${{ hashFiles('tests/_support/defmon_corpus.txt',
+            fixtures-${{ hashFiles('tests/_support/defmon_corpus.txt',
             'tests/_support/__init__.py') }}
 
       - name: Run pytest (xdist + coverage)
@@ -53,7 +52,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
       - name: black --check
-        run: black --check --target-version py311 pydefmon tests tools
+        run: black --check --target-version py311 pydefmon tests
       - name: pylint
         run: pylint pydefmon
 

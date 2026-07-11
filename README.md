@@ -40,9 +40,9 @@ grid = DefmonPlayer("tune.sid").render_grid(250)   # 250 x 25-register frames
 ```
 
 See [docs/usage.md](docs/usage.md) for editing, the register-write API, and the
-`pydefmon` command line (`info` / `reglog` / `wav`), and
-[docs/format.md](docs/format.md) for the canonical file-format and runtime-RAM
-reference.
+shared `pysidtracker` command line (`info` / `reglog` / `wav`, which pydefmon
+plugs into), and [docs/format.md](docs/format.md) for the canonical file-format
+and runtime-RAM reference.
 
 ## Development
 

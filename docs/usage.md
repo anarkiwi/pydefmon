@@ -42,16 +42,17 @@ The player derives from `pysidtracker.MemPlayer`, so `play_frame`,
 
 ## Command line
 
-The `pydefmon` command has three subcommands, all operating on a `.sid` replay:
+pydefmon ships no CLI of its own: installing it registers defMON on the shared
+`pysidtracker` tool (via the `pysidtracker.formats` entry point), which
+recognises a defMON replay by content and drives it:
 
 ```bash
-pydefmon info   path/to/tune.sid                               # replay metadata
-pydefmon reglog path/to/tune.sid /tmp/tune.log  --seconds 60   # SID register log
-pydefmon wav    path/to/tune.sid /tmp/tune.wav  --seconds 60 --model 8580
+pysidtracker info   path/to/tune.sid                               # replay metadata
+pysidtracker reglog path/to/tune.sid /tmp/tune.log  --seconds 60   # SID register log
+pysidtracker wav    path/to/tune.sid /tmp/tune.wav  --seconds 60 --model 8580
 ```
 
-`reglog` and `wav` run the tune's own replay at its play-routine cadence for
-`--seconds` of playback.
+`reglog` and `wav` render the tune's own replay for `--seconds` of playback.
 
 ## What's in the package
 

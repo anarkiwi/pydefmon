@@ -42,11 +42,16 @@ The player derives from `pysidtracker.MemPlayer`, so `play_frame`,
 
 ## Command line
 
-Render a `.sid` replay to WAV (requires the `[wav]` extra for the pyresidfp SID):
+The `pydefmon` command has three subcommands, all operating on a `.sid` replay:
 
 ```bash
-pydefmon-player path/to/tune.sid /tmp/tune.wav --seconds 60 --model 8580
+pydefmon info   path/to/tune.sid                               # replay metadata
+pydefmon reglog path/to/tune.sid /tmp/tune.log  --seconds 60   # SID register log
+pydefmon wav    path/to/tune.sid /tmp/tune.wav  --seconds 60 --model 8580
 ```
+
+`reglog` and `wav` run the tune's own replay at its play-routine cadence for
+`--seconds` of playback.
 
 ## What's in the package
 
@@ -63,11 +68,12 @@ pydefmon-player path/to/tune.sid /tmp/tune.wav --seconds 60 --model 8580
   FV / CP / ACID` high half) plus its companion `jp` and `dl` bytes.
 - [`SidcallFrame`](../pydefmon/defmon.py) — one frame of a cascade walk via
   `DefmonSong.sidcall_frames(start_row)`.
-- [`DefmonPlayer`](../pydefmon/defmon_player.py) — a `pysidtracker.MemPlayer`
+- [`DefmonPlayer`](../pydefmon/defmon_player.py) — a `pysidtracker.EmuPlayer`
   that runs a `.sid` tune's own relocatable replay on a py65 6502 (with the NMOS
   illegal opcodes defMON uses) and samples the 25 SID registers per frame.
   `render_grid(nframes)` and `play_frame()` come from the shared base; byte-exact
-  against the `sidtrace` oracle. `render_wav()` renders to WAV via
-  `pysidtracker.audio`.
-- `iter_register_writes` / `read_reglog` / `write_reglog` / `RegWrite` — the
-  shared `py*` register-log surface.
+  against the `sidtrace` oracle.
+- `register_writes_from_player` / `read_reglog` / `write_reglog` / `RegWrite` —
+  the shared `py*` register-log surface.
+- `render_player_wav` / `render_player_samples` — the shared `py*` WAV/sample
+  render; hand it a `DefmonPlayer`.

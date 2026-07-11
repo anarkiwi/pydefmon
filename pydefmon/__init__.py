@@ -27,6 +27,15 @@ For raw byte-level work on defMON's ``$D6C9`` LOAD codec, see
 :class:`DefmonSong` and :class:`DefmonPlayer`.
 """
 
+from pysidtracker import (
+    RegWrite,
+    read_reglog,
+    register_writes_from_player,
+    render_player_samples,
+    render_player_wav,
+    write_reglog,
+)
+
 from pydefmon.defmon import (
     DefmonError,
     DefmonSidParser,
@@ -40,13 +49,7 @@ from pydefmon.defmon import (
     STANDARD_SNAPSHOT_END,
     STANDARD_SNAPSHOT_SIZE,
 )
-from pydefmon.defmon_player import DefmonPlayer, render_wav
-from pydefmon.reglog import (
-    RegWrite,
-    iter_register_writes,
-    read_reglog,
-    write_reglog,
-)
+from pydefmon.defmon_player import DefmonPlayer
 
 __all__ = [
     "DefmonError",
@@ -63,10 +66,11 @@ __all__ = [
     "STANDARD_SNAPSHOT_END",
     "STANDARD_SNAPSHOT_SIZE",
     "__version__",
-    "iter_register_writes",
     "read_reglog",
-    "render_wav",
+    "register_writes_from_player",
+    "render_player_samples",
+    "render_player_wav",
     "write_reglog",
 ]
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

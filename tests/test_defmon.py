@@ -44,6 +44,19 @@ class TestDefmonSongRoundTrip(unittest.TestCase):
         twice = DefmonSong.from_bytes(once).to_bytes()
         self.assertEqual(once, twice)
 
+    def test_full_image_round_trip(self):
+        """Import -> export -> re-import preserves the whole RAM image.
+
+        ``to_bytes`` zeros the runtime-reconstructed regions ($1800
+        active-linear pointers, the $1A00 pattern-pointer table -- defMON
+        rebuilds these post-LOAD via $CF42 / $D004), so raw file bytes do
+        *not* round-trip. The load-bearing invariant is that the post-LOAD
+        runtime image survives the $D6C9 codec byte-for-byte: the original
+        fixture and the re-imported song unpack to the identical RAM image,
+        so no pattern / arranger / sidTAB / DL / JP data is lost."""
+        reimported = DefmonSong.from_bytes(self.song.to_bytes())
+        self.assertEqual(self.song.unpacked_snapshot(), reimported.unpacked_snapshot())
+
     def test_pattern_pointer_table_zeroed_on_disk(self):
         self.assertEqual(bytes(self.song.pattern_pointer_table), b"\x00" * 0x100)
 
@@ -419,7 +432,7 @@ class TestOptimize(unittest.TestCase):
 
 class TestSidtabJpDl(unittest.TestCase):
     """Exercises the per-sidTAB-row JP / DL accessors on ``DefmonSong``
-    against the on-disk marker model documented in AGENTS.md. See the
+    against the on-disk marker model documented in docs/format.md. See the
     ``set_jp`` / ``set_dl`` / ``jp_target`` docstrings for the byte
     semantics."""
 

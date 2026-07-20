@@ -203,7 +203,7 @@ state on the frame of the fetch.
 byte 0           low-half bitmap (which low columns are present)
 bytes 1..N       low-half values (in screen-column order)
 byte 1+N         high-half bitmap (which high columns are present)
-bytes 2+N..M     high-half values (ACID is 2 bytes; others 1)
+bytes 2+N..M     high-half values (ACID is 2 bytes, little-endian; others 1)
 bytes M+1..14    zero pad
 ```
 
@@ -223,7 +223,7 @@ the bitmap. Column meanings:
 | high   | 6   | `RE`   | Sets `$D417` resonance + voice-routing (3-way dispatch on byte value) |
 | high   | 5   | `FV`   | Sets `$D418` filter mode + volume (volume always emitted as `$0F`) |
 | high   | 4   | `CP`   | Sets cutoff-slide saturation-step extra (added to `$D416` each frame) |
-| high   | 3   | `ACID` | 16-bit cutoff-slide command (low byte = step; high byte = direction + control: bit 7 = slide-vs-absolute, bit 6 = SBC vs ADC) |
+| high   | 3   | `ACID` | 16-bit cutoff-slide command, stored little-endian (step byte first, then control: bit 7 = slide-vs-absolute, bit 6 = SBC vs ADC) |
 
 `SidtabRow.parse(index, raw, *, jp=None, dl=None)` decodes the row;
 `pack({col: val})` / `to_bytes()` go back. Walk a cascade from row `Y` with
@@ -317,7 +317,9 @@ A 16-bit accumulator (lo / hi) integrates a signed step per NMI:
 * Output: `A = acc_hi + cutoff_extra + carry_from_hi`. If `A & $80` or `A < $02`,
   output `floor` instead. Optional ASL doubles output. Written to `$D416`.
 
-The `ACID` sidTAB column carries a 16-bit `(low, high)` command:
+The `ACID` sidTAB column carries a 16-bit `(low, high)` command, stored in the
+row as `low` then `high` — the order the player reads them (`$176D: LAX ($FB),Y`
+→ X = `low`, `INY` / `LDA ($FB),Y` → A = `high`, then `$1772: BMI`):
 
 * `high & $80` clear → absolute reset: `acc_lo := low`, `acc_hi := high`,
   `step_lo/hi := 0`.

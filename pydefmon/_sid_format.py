@@ -81,6 +81,7 @@ SIGNATURE: tuple = tuple(None if t == "??" else int(t, 16) for t in _SIG_SPEC.sp
 _DATA_BASE_FROM_SIGNATURE = 0x7DE
 
 _FLAG_ALT = 0x80
+_GATE_BITS = (0x40, 0x20, 0x10)  # payload order: slot_a, slot_b, note
 _STEPS_PER_PATTERN = 32
 _PATTERN_STRIDE = 0x80
 _SIDTAB_ROW_STRIDE = 15
@@ -97,6 +98,29 @@ def find_signature(mem, start: int = 0, end: int = 0x10000) -> int:
     """
     match = find_code_first(mem, _SIG_PATTERN, start=start, end=end)
     return match.addr if match is not None else -1
+
+
+def _walk_pattern(absrd, start: int):
+    """Yield a packed pattern body's steps as editor-layout 4-byte events.
+
+    Bodies are variable length: a flag byte then one payload byte per set gate
+    bit (``$40`` slot_a, ``$20`` slot_b, ``$10`` note), which is exactly what
+    the player's stream pointer advances by ($11BD: ``TYA / CLC / ADC $1186``).
+    Stops after the ALT (``$80``) step, or at 32 steps.
+    """
+    pos = start
+    for _ in range(_STEPS_PER_PATTERN):
+        flag = absrd(pos)
+        pos += 1
+        event = bytearray(4)
+        event[0] = flag
+        for slot, gate in enumerate(_GATE_BITS):
+            if flag & gate:
+                event[slot + 1] = absrd(pos)
+                pos += 1
+        yield bytes(event)
+        if flag & _FLAG_ALT:
+            return
 
 
 def _reconstruct(mem, data_base: int) -> bytearray:
@@ -116,22 +140,14 @@ def _reconstruct(mem, data_base: int) -> bytearray:
     for addr in range(LOAD_ADDRESS, _PATTERN_BANK):
         snap[addr - LOAD_ADDRESS] = src(addr)
 
-    # Pattern bodies: pointer table at $1A00/$1A80 holds absolute addresses
-    # of each pattern's compacted body. Re-expand into fixed $1F00 slots.
+    # Pattern bodies: $1A00/$1A80 holds each body's absolute address.
     for n in range(128):
         start = src(0x1A00 + n) | (src(0x1A80 + n) << 8)
-        dst = _PATTERN_BANK + n * _PATTERN_STRIDE
-        for ev in range(_STEPS_PER_PATTERN):
-            s = start + ev * 4
-            flag, sa, sb, note = absrd(s), absrd(s + 1), absrd(s + 2), absrd(s + 3)
-            d = dst + ev * 4 - LOAD_ADDRESS
+        dst = _PATTERN_BANK + n * _PATTERN_STRIDE - LOAD_ADDRESS
+        for ev, event in enumerate(_walk_pattern(absrd, start)):
+            d = dst + ev * 4
             if 0 <= d and d + 4 <= len(snap):
-                snap[d] = flag
-                snap[d + 1] = sa
-                snap[d + 2] = sb
-                snap[d + 3] = note
-            if flag & _FLAG_ALT:
-                break
+                snap[d : d + 4] = event
 
     # sidTAB rows: $1800/$1900 pointer pair. Non-zero hi => absolute address
     # of the row's compacted body; re-expand into fixed $5F00 slots and mark

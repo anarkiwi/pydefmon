@@ -20,6 +20,19 @@ DATA_BASE = 0x1800
 ROW_ADDR = 0x2000  # compacted sidTAB row 0 body
 PAT_ADDR = 0x2010  # compacted pattern 1 body
 
+# Variable-length bodies: flag byte + one payload byte per set gate bit.
+_PAT1_PACKED = bytes([0x10, 0x41, 0x62, 0x05, 0x06, 0x03, 0x84])
+_PAT2_PACKED = bytes([0x51, 0x07, 0x42, 0x80])
+PAT2_ADDR = PAT_ADDR + len(_PAT1_PACKED)  # abuts pattern 1: overrun detector
+
+_PAT1_EVENTS = (
+    (0x10, 0, 0, 0x41),
+    (0x62, 0x05, 0x06, 0),
+    (0x03, 0, 0, 0),
+    (0x84, 0, 0, 0),
+)
+_PAT2_EVENTS = ((0x51, 0x07, 0, 0x42), (0x80, 0, 0, 0))
+
 
 def _psid_header(data_offset: int) -> bytearray:
     h = bytearray(data_offset)
@@ -54,12 +67,12 @@ def _synthetic_replay(*, with_pattern: bool = True) -> bytes:
     _put(image, DATA_BASE + 0x001, bytes([0x00]))  # jp target row 0
     _put(image, DATA_BASE + 0x101, bytes([0x00]))  # hi 0 => JP source
 
-    # Pattern-1 pointer ($1A00/$1A80), body @ PAT_ADDR.
-    _put(image, DATA_BASE + 0x200 + 1, bytes([PAT_ADDR & 0xFF]))  # lo
-    _put(image, DATA_BASE + 0x280 + 1, bytes([PAT_ADDR >> 8]))  # hi
+    # Pattern 1 / 2 pointers ($1A00/$1A80), bodies abutting from PAT_ADDR.
+    _put(image, DATA_BASE + 0x200 + 1, bytes([PAT_ADDR & 0xFF, PAT2_ADDR & 0xFF]))
+    _put(image, DATA_BASE + 0x280 + 1, bytes([PAT_ADDR >> 8, PAT2_ADDR >> 8]))
 
-    # Arranger V1 step 0 plays pattern 1, step 1 is a jump ($FF) terminator.
-    _put(image, DATA_BASE + 0x300, bytes([0x01, 0xFF]))
+    # Arranger V1 plays patterns 1 and 2, then a jump ($FF) terminator.
+    _put(image, DATA_BASE + 0x300, bytes([0x01, 0x02, 0xFF]))
 
     # DL byte for sidTAB row 0.
     _put(image, DATA_BASE + 0x600, bytes([0x05]))
@@ -68,8 +81,7 @@ def _synthetic_replay(*, with_pattern: bool = True) -> bytes:
     _put(image, ROW_ADDR, bytes([0x40, 0x41, 0x00]))
 
     if with_pattern:
-        # Pattern body: note-on event then an ALT (end) event.
-        _put(image, PAT_ADDR, bytes([0x10, 0x00, 0x00, 0x30, 0x80, 0x00, 0x00, 0x00]))
+        _put(image, PAT_ADDR, _PAT1_PACKED + _PAT2_PACKED)
 
     header = _psid_header(0x7C)
     return bytes(header + image)
@@ -90,7 +102,7 @@ class TestSidReplayReader(unittest.TestCase):
         self.assertIsNotNone(snap)
         song = DefmonSong(snap)
         # Arranger V1 step 0 references pattern 1.
-        self.assertEqual(bytes(song.arranger_v1)[:2], bytes([0x01, 0xFF]))
+        self.assertEqual(bytes(song.arranger_v1)[:3], bytes([0x01, 0x02, 0xFF]))
         # Pattern 1 decodes to 32 events; first is a note-on, later an ALT.
         events = song.pattern_events(1)
         self.assertEqual(len(events), 32)
@@ -100,6 +112,31 @@ class TestSidReplayReader(unittest.TestCase):
         self.assertEqual(row.WGh, 0x41)
         # DL byte carried over.
         self.assertEqual(bytes(song.sidtab_dl)[0], 0x05)
+
+    def test_packed_pattern_bodies_are_variable_length(self):
+        """Bodies are flag + one byte per set gate bit, not fixed 4-byte records.
+
+        The player advances its stream pointer by exactly the bytes it consumed
+        ($11BD: ``TYA / CLC / ADC $1186 / STA $1186``), so a fixed-stride decode
+        misreads every field after the first partial record and runs off the end
+        of the body into the next pattern's.
+        """
+        song = DefmonSong(depack_replay(SidImage.from_bytes(_synthetic_replay())))
+        for pat, expected in ((1, _PAT1_EVENTS), (2, _PAT2_EVENTS)):
+            events = song.pattern_events(pat)
+            self.assertEqual(len(events), 32, pat)
+            decoded = tuple(
+                (e.flag, e.slot_a, e.slot_b, e.note) for e in events[: len(expected)]
+            )
+            self.assertEqual(decoded, expected, f"pattern {pat}")
+            # Nothing beyond the ALT step, and no note byte with bit 7 set.
+            self.assertTrue(all(e.alt for e in events[len(expected) - 1 :][:1]))
+            self.assertTrue(all(not e.note & 0x80 for e in events))
+            self.assertEqual(
+                bytes(song.pattern(pat))[len(expected) * 4 :],
+                bytes(0x80 - len(expected) * 4),
+                f"pattern {pat} overran past its ALT",
+            )
 
     def test_depack_no_pattern_data_returns_none(self):
         image = SidImage.from_bytes(_synthetic_replay(with_pattern=False))

@@ -798,6 +798,8 @@ class SidtabRow:
                           magnitude, high byte = direction + control
                           (bit 7 = "slide" vs "absolute"; bit 6 = SBC
                           vs ADC). Drives the cutoff slide oscillator.
+                          Stored little-endian (step byte first), the
+                          order the player consumes it in.
     =====  ============  ================================================
 
     The cascade also reads two companion bytes per row, stored in
@@ -893,7 +895,7 @@ class SidtabRow:
                     if pos + w > 15:
                         break
                     if w == 2:
-                        v = (raw[pos] << 8) | raw[pos + 1]
+                        v = raw[pos] | (raw[pos + 1] << 8)
                     else:
                         v = raw[pos]
                     setattr(row, name, v)
@@ -927,8 +929,8 @@ class SidtabRow:
             if v is None:
                 continue
             if self._HIGH_WIDTH[name] == 2:
-                out.append((v >> 8) & 0xFF)
                 out.append(v & 0xFF)
+                out.append((v >> 8) & 0xFF)
             else:
                 out.append(v & 0xFF)
         out.extend(self.trailing)

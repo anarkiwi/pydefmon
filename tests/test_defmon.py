@@ -179,8 +179,16 @@ class TestSidtabRow(unittest.TestCase):
         self.assertEqual(row.values(), {"WGh": 0x5A})
 
     def test_acid_two_bytes(self):
+        """ACID is stored little-endian: step byte first, control byte second.
+
+        The player reads them in that order ($176D: ``LAX ($FB),Y`` -> X = step,
+        ``INY`` / ``LDA ($FB),Y`` -> A = control), branches on bit 7 of the
+        *second* byte and stores the first as the step / accumulator low byte.
+        """
         row = SidtabRow.parse(0, bytes([0x00, 0x08, 0x50, 0xC0]) + b"\x00" * 11)
-        self.assertEqual(row.values(), {"ACID": 0x50C0})
+        self.assertEqual(row.values(), {"ACID": 0xC050})
+        self.assertEqual(row.ACID >> 8, 0xC0, "high byte is direction + control")
+        self.assertEqual(row.ACID & 0xFF, 0x50, "low byte is the step magnitude")
 
     def test_parse_rejects_wrong_length(self):
         with self.assertRaises(ValueError):
@@ -223,11 +231,11 @@ class TestSidtabRowPacker(unittest.TestCase):
         self.assertEqual(len(packed), 15)
 
     def test_pack_acid_high_only(self):
-        packed = SidtabRow.pack({"ACID": 0x50C0})
+        packed = SidtabRow.pack({"ACID": 0xC050})
         self.assertEqual(packed[0], 0)
         self.assertEqual(packed[1], 0x08)
-        self.assertEqual(packed[2], 0x50)
-        self.assertEqual(packed[3], 0xC0)
+        self.assertEqual(packed[2], 0x50, "step byte is stored first")
+        self.assertEqual(packed[3], 0xC0, "control byte is stored second")
 
     def test_pack_unknown_column_raises(self):
         with self.assertRaises(ValueError):

@@ -69,7 +69,13 @@ length, tightly packed) addressed through pointer tables. The reader
   the row marked active `$11` so `unpacked_snapshot()` materialises the pointer);
   zero hi = a JP source whose lo byte is the target row index.
 * `DB+$200` / `DB+$280` — per-pattern pointer lo/hi (absolute address of the
-  pattern's compacted body, re-expanded to `$1F00 + n*$80`).
+  pattern's compacted body, re-expanded to `$1F00 + n*$80`). A compacted body is
+  a run of variable-length records — one flag byte followed by one payload byte
+  per set gate bit, in gate order `$40` slot_a, `$20` slot_b, `$10` note — ending
+  at the `$80` ALT step or after 32 steps. The player walks a record with `Y`
+  (`Y=1`, `INY` per set gate) and then advances its stream pointer by exactly
+  that many bytes (`$11BD: TYA / CLC / ADC $1186 / STA $1186`), so bodies pack
+  back-to-back with no fixed stride.
 * `DB+$300` / `$400` / `$500` — V1/V2/V3 arrangers (verbatim).
 * `DB+$600` — per-sidTAB-row DL bytes (verbatim).
 

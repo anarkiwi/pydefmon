@@ -5,7 +5,7 @@
 
 Pure-Python reader, writer, and player for
 [defMON](https://csdb.dk/release/?id=199997) C64 tracker tunes. `DefmonPlayer`
-runs a tune's own relocatable replay on a py65 6502 and emits the per-frame SID
+runs a tune's own relocatable replay on a jennings 6502 and emits the per-frame SID
 register writes, verified byte-exact against the
 [`sidtrace`](https://github.com/anarkiwi/sidtrace) `sidplayfp` oracle over real
 HVSC tunes.

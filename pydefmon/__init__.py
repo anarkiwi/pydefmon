@@ -11,7 +11,7 @@ Top-level API:
 * :class:`SidcallFrame` — one row of a sidTAB cascade walk
   starting from a given row index.
 * :class:`DefmonPlayer` — per-frame SID register player that runs
-  the tune's own relocatable replay on a py65 6502 (byte-exact
+  the tune's own relocatable replay on a jennings 6502 (byte-exact
   against the sidtrace oracle over real HVSC tunes).
 
 Constants:

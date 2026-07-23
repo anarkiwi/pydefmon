@@ -10,7 +10,7 @@ defMON is a C64 tracker (csdb.dk release 199997). `pydefmon` reads both the
 the same `$1800..$7166` runtime RAM image either way, and plays it frame-accurately.
 
 `DefmonPlayer` plays a `.sid` by running the tune's own relocatable replay on a
-py65 6502; the [oracle test](../tests/test_oracle_hvsc.py) asserts its per-frame
+jennings 6502; the [oracle test](../tests/test_oracle_hvsc.py) asserts its per-frame
 SID-register grid matches the [`sidtrace`](https://github.com/anarkiwi/sidtrace)
 `sidplayfp` oracle byte-for-byte over real HVSC tunes. This document is
 authoritative for the byte layout the reader/writer (`DefmonSong`) exposes;
@@ -92,7 +92,7 @@ the editor-layout snapshot; `from_sid_bytes` uses it as the fallback after the
 canonical reconstruction. `tests/test_hvsc_sid_corpus.py` asserts the whole
 corpus recognises and decodes soundly, and `tests/test_goto80_oracle.py` verifies
 the Goto80 reconstruction frame-exact on the cascade (waveform + envelope)
-registers against a clean-room py65 oracle.
+registers against a clean-room jennings oracle.
 
 ## Data model
 
@@ -233,7 +233,7 @@ the first STop, JP loopback, or `max_frames`.
 ## Player and playback notes
 
 `DefmonPlayer` does not model any of the following in Python — it runs the
-tune's own replay on a py65 6502, so all of it happens as real machine code.
+tune's own replay on a jennings 6502, so all of it happens as real machine code.
 These notes document what defMON's replay does, for reference. The play cadence
 is a tune-specific CIA-2 Timer-A NMI with reload `(($715A | $715B << 8)) * $715C`
 cycles (`$715A/$715B` = per-NMI cycle count, `$715C` = sub-frame ratio), firing
@@ -334,7 +334,7 @@ The `CP` sidTAB column sets the cutoff-extra add directly.
 The oracle test verifies byte-exact rendering over single-speed tunes across both
 replay-decode families (standard editor-layout and Goto80 compact-runtime).
 Multi-speed tunes and tunes whose cutoff seeds from the V3 oscillator readback
-(`$D41B/$D41C`) are byte-exact only under a cycle-accurate VICE, not the py65
+(`$D41B/$D41C`) are byte-exact only under a cycle-accurate VICE, not the jennings
 model, and are excluded from the oracle set.
 
 ## References

@@ -2,13 +2,13 @@
 
 A defMON tune ships (in HVSC) as a PSID/RSID *replay* -- a relocatable player
 plus compacted tune data. :class:`DefmonPlayer` mounts that image, runs its
-``init`` once, then runs its ``play`` routine once per frame on a py65 6502,
+``init`` once, then runs its ``play`` routine once per frame on a jennings 6502,
 sampling the 25 SID registers ``$D400..$D418`` after each call. This runs the
 replay's *own* machine code, so every defMON driver variation renders byte-for-
 byte -- no per-subsystem Python transcription to keep faithful.
 
 It is a thin :class:`pysidtracker.EmuPlayer` -- the shared "run the tune's own
-driver on py65" player -- which owns the CPU build (with the raster / SID-read
+driver on jennings" player -- which owns the CPU build (with the raster / SID-read
 observers and the NMOS illegal opcodes defMON executes), the post-init snapshot,
 the per-frame diffing ``play_frame``, and the ``render_grid`` driver. Only the
 defMON specifics live here: resolving a source to a :class:`SidImage`, wiring the

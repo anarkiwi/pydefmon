@@ -70,7 +70,7 @@ pysidtracker wav    path/to/tune.sid /tmp/tune.wav  --seconds 60 --model 8580
 - [`SidcallFrame`](../pydefmon/defmon.py) — one frame of a cascade walk via
   `DefmonSong.sidcall_frames(start_row)`.
 - [`DefmonPlayer`](../pydefmon/defmon_player.py) — a `pysidtracker.EmuPlayer`
-  that runs a `.sid` tune's own relocatable replay on a py65 6502 (with the NMOS
+  that runs a `.sid` tune's own relocatable replay on a jennings 6502 (with the NMOS
   illegal opcodes defMON uses) and samples the 25 SID registers per frame.
   `render_grid(nframes)` and `play_frame()` come from the shared base; byte-exact
   against the `sidtrace` oracle.

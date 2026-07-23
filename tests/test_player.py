@@ -1,6 +1,6 @@
-"""Unit tests for :class:`pydefmon.DefmonPlayer` (the py65 replay player).
+"""Unit tests for :class:`pydefmon.DefmonPlayer` (the jennings replay player).
 
-The player runs a tune's own relocatable replay on a py65 6502, so a runnable
+The player runs a tune's own relocatable replay on a jennings 6502, so a runnable
 synthetic PSID (no copyrighted material) exercises the whole path offline:
 ``_init`` / ``_frame`` / snapshot / ``render_grid`` / ``play_frame``. A single
 real HVSC replay is byte-checked against the ``.prg`` reader path when the
@@ -46,7 +46,7 @@ class TestDefmonPlayer(unittest.TestCase):
         self.assertEqual(second, [(0x00, 2)])
 
     def test_render_grid_matches_base_register_grid(self):
-        """The player render equals the base py65 renderer (same real code)."""
+        """The player render equals the base jennings renderer (same real code)."""
         from pysidtracker import register_grid
 
         grid = DefmonPlayer(self.replay).render_grid(8)

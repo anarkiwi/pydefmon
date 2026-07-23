@@ -7,10 +7,10 @@ unavailable tune or a failed oracle render fails the test rather than hiding a
 regression. HVSC ``.sid`` files are copyright works: they are downloaded to a
 cache (or a local ``$HVSC`` tree), never committed.
 
-``DefmonPlayer`` runs each tune's own relocatable replay on a py65 6502 (with the
+``DefmonPlayer`` runs each tune's own relocatable replay on a jennings 6502 (with the
 NMOS illegal opcodes defMON uses), so every driver variation is exercised
 directly against the sidtrace oracle. The TUNES set spans both replay-decode
-families and multiple authors, all single-speed and byte-exact under py65.
+families and multiple authors, all single-speed and byte-exact under jennings.
 """
 
 import os
@@ -32,7 +32,7 @@ _CACHE = Path(os.environ.get("PYDEFMON_ORACLE_CACHE", ".oracle-cache"))
 #   * standard defMON editor-layout replay -- Demsky, Ilkke, Dex-D;
 #   * Goto80's older compact-runtime replay -- Rent-A-Cop, Ponky.
 # (Multi-speed and V3-oscillator-RNG tunes are byte-exact only under a
-# cycle-accurate VICE, not the py65 model, so they are excluded here.)
+# cycle-accurate VICE, not the jennings model, so they are excluded here.)
 TUNES = {
     # Standard editor-layout replay driver.
     "demsky_acid": "MUSICIANS/D/Demsky_Martin/Acid_Bassline.sid",

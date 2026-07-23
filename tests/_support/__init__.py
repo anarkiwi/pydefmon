@@ -8,7 +8,7 @@ from typing import List, Optional, Tuple
 
 from pysidtracker.testing import TuneFetchError, fetch_prgs, fetch_tune
 
-# A minimal but *runnable* PSID replay: real 6502 code so the DefmonPlayer py65
+# A minimal but *runnable* PSID replay: real 6502 code so the DefmonPlayer jennings
 # path (init + play + snapshot) is exercised offline, with no copyrighted HVSC
 # material. init seeds volume ($D418=$0F) and V0 control ($D404=$21); play
 # increments V0 freq-lo ($D400) every call, giving a deterministic grid.

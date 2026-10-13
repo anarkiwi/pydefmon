@@ -19,8 +19,8 @@ Constants:
 * :data:`LOAD_ADDRESS` — ``$1800``, where defMON tunes load.
 * :data:`STANDARD_SNAPSHOT_END` / :data:`STANDARD_SNAPSHOT_SIZE`
   — the runtime RAM image end (``$7167``) and length (22887).
-* :data:`NOTE_PITCH_LO` / :data:`NOTE_PITCH_HI` — 128-byte
-  note-to-SID-freq LUTs the player walks.
+* :data:`NOTE_PITCH_LO` / :data:`NOTE_PITCH_HI` — 256-byte
+  note-to-SID-freq LUTs the player walks (full 8-bit index range).
 
 For raw byte-level work on defMON's ``$D6C9`` LOAD codec, see
 :mod:`pydefmon._load_format` (private). Most users only need

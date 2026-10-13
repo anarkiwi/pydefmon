@@ -111,9 +111,11 @@ class TestPatternEventFactories(unittest.TestCase):
         with self.assertRaises(ValueError):
             PatternEvent.note_on(0)
         with self.assertRaises(ValueError):
-            PatternEvent.note_on(0x80)
+            PatternEvent.note_on(0x100)
         with self.assertRaises(ValueError):
             PatternEvent.note_on(0x25, duration=16)
+        # note 0x80 is valid (extended range reachable via TR shifts)
+        PatternEvent.note_on(0x80)
 
     def test_delay_to_bytes(self):
         ev = PatternEvent.delay(15)
@@ -142,11 +144,11 @@ class TestPatternEventFactories(unittest.TestCase):
 
     def test_sid_freq_word_matches_player_tables(self):
         """``sid_freq_word()`` must read the same NOTE_PITCH bytes
-        that the player walks at runtime — otherwise format-side
-        analysis disagrees with what the chip will actually latch."""
+        that the player walks at runtime — full 8-bit range including
+        extended notes reachable via TR shifts."""
         from pydefmon.defmon import NOTE_PITCH_HI, NOTE_PITCH_LO
 
-        for note in range(1, 128):
+        for note in range(1, 256):
             expected = (NOTE_PITCH_HI[note] << 8) | NOTE_PITCH_LO[note]
             self.assertEqual(
                 PatternEvent(0x10, 0, 0, note).sid_freq_word(),
@@ -156,7 +158,9 @@ class TestPatternEventFactories(unittest.TestCase):
 
     def test_note_name_special_cases(self):
         self.assertEqual(PatternEvent(0, 0, 0, 0).note_name(), "---")
-        self.assertEqual(PatternEvent(0, 0, 0, 0x80).note_name(), "$80")
+        # Extended range notes compute proper names
+        self.assertEqual(PatternEvent(0, 0, 0, 0x80).note_name(), "G-10")
+        self.assertEqual(PatternEvent(0, 0, 0, 0xFF).note_name(), "D-21")
 
     def test_byte_clamp_on_construction(self):
         ev = PatternEvent(0x100, 0x100, 0x100, 0x100)

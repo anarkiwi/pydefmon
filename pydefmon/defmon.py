@@ -79,14 +79,19 @@ STANDARD_SNAPSHOT_SIZE = STANDARD_SNAPSHOT_END - LOAD_ADDRESS  # 22887
 
 
 # ----------------------------------------------------------------------
-# Note → SID-frequency lookup tables (lo/hi byte each, 128 entries
-# indexed by the raw pattern note byte). The player's pitch
-# oscillator reads these directly, so ``PatternEvent.sid_freq_word()``
-# computes from the same tables and yields the exact 16-bit value the
-# real defMON would latch into ``$D400/$D401``.
+# Note → SID-frequency lookup tables (lo/hi byte each, 256 entries
+# indexed by the raw 8-bit note value). The player's pitch oscillator
+# reads these directly with unmasked 8-bit indexing, so the tables
+# cover the full 0..255 range (first half is notes $01..$7F, second
+# half is the continuation reachable via TR shifts).
+# ``PatternEvent.sid_freq_word()`` computes from the same tables.
 # ----------------------------------------------------------------------
 
 _NOTE_PITCH_LO_HEX = (
+    "464a4e53585d62686e757c838b939ca6afbac5d1ddeaf8071627394b5f748aa1"
+    "bad4f00e2d4e7196bee7144274a9e01b5a9ce22d7bcf2785e851c137b438c459"
+    "f79d4e0ad0a2816d677089b2ed3b9c13a04502dacee01164da763926408904b4"
+    "9cc023c8b4eb724c801208683980459068d6e399002410ff0000000000000000"
     "464a4e53585d62686e757c838b939ca6afbac5d1ddeaf8071627394b5f748aa1"
     "bad4f00e2d4e7196bee7144274a9e01b5a9ce22d7bcf2785e851c137b438c459"
     "f79d4e0ad0a2816d677089b2ed3b9c13a04502dacee01164da763926408904b4"
@@ -97,11 +102,15 @@ _NOTE_PITCH_HI_HEX = (
     "010101020202020202020303030303040404040505050606060707080809090a"
     "0a0b0c0d0d0e0f10111213141517181a1b1d1f20222427292b2e3134373a3e41"
     "45494e52575c62686e757c838b939ca5afb9c4d0ddeaf8ff85fba000b1fbf05a"
+    "0101010101010101010101010101010101010101010101020202020202020202"
+    "02020203030303030303040404040405050505060606070707080809090a0a0b"
+    "0b0c0d0e0e0f1011121314151618191b1c1e20212325282a2c2f3235383b3f42"
+    "464a4f53585d63696f767d848c949da6b0bac5d1deebf9ff86fca101b2fcf15b"
 )
 NOTE_PITCH_LO = bytes.fromhex(_NOTE_PITCH_LO_HEX)
 NOTE_PITCH_HI = bytes.fromhex(_NOTE_PITCH_HI_HEX)
-assert len(NOTE_PITCH_LO) == 128
-assert len(NOTE_PITCH_HI) == 128
+assert len(NOTE_PITCH_LO) == 256
+assert len(NOTE_PITCH_HI) == 256
 
 
 class DefmonError(SidError, ValueError):
@@ -780,10 +789,10 @@ class SidtabRow:
                           Lets tunes flicker waveform/gate mid-note.
     AD     $D405         Attack (high nibble) / decay (low nibble).
     SR     $D406         Sustain (high nibble) / release (low nibble).
-    TR     (note byte)   New ``current_note`` for the voice. Bit 7 set =
-                          absolute note value; bit 7 clear = relative,
-                          added to the voice's transpose buffer (= the
-                          note byte from the most recent GATE_N).
+    TR     (note byte)   New ``current_note`` for the voice: the byte is
+                           added to the transpose buffer (last GATE_N note)
+                           with plain 8-bit arithmetic — no mask, no bit7
+                           special case. Result wraps at $FF.
     AF     (slide mode)  Pitch-slide / portamento mode for the voice:
                           ``$00`` = no slide, ``$01..$7F`` = portamento
                           toward ``current_note + AF``, ``$80..$FF`` =
@@ -1085,8 +1094,8 @@ class PatternEvent:
     ) -> "PatternEvent":
         """Build a note-on event: gate the note (and optional sidcall
         slots) and set the duration."""
-        if not 1 <= note <= 0x7F:
-            raise ValueError(f"note byte must be 1..127, got ${note:02X}")
+        if not 1 <= note <= 0xFF:
+            raise ValueError(f"note byte must be 1..255, got ${note:02X}")
         if not 0 <= duration <= 0x0F:
             raise ValueError(f"duration must be 0..15, got {duration}")
         flag = cls.FLAG_GATE_N | (duration & 0x0F)
@@ -1165,7 +1174,7 @@ class PatternEvent:
         freq_lo) is *not* applied here; callers that need a
         per-voice exact match should add it themselves.
         """
-        if self.note == 0 or self.note & 0x80:
+        if self.note == 0:
             return None
         return (NOTE_PITCH_HI[self.note] << 8) | NOTE_PITCH_LO[self.note]
 
@@ -1178,8 +1187,6 @@ class PatternEvent:
     def note_name(self) -> str:
         if self.note == 0:
             return "---"
-        if self.note & 0x80:
-            return f"${self.note:02X}"
         n = self.note - 1
         return f"{self._NOTE_NAMES[n % 12]}{n // 12}"
 

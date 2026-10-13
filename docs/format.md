@@ -188,10 +188,12 @@ Flag bits:
 `alt_end()`, `silent_pattern()` build canonical events; read via
 `DefmonSong.pattern_events(idx)` and write via `set_pattern_events(idx, events)`.
 
-**Note byte → SID frequency.** The pitch oscillator indexes `NOTE_PITCH_LO /
-NOTE_PITCH_HI` directly by `note` (not `note-1`). `PatternEvent.sid_freq_word()`
-returns the same 16-bit value the player will latch onto `$D400/$D401` (without
-the per-voice detune; V0=+0, V1=+1, V2=+2 added by the player on `freq_lo`).
+**Note byte → SID frequency.** The pitch oscillator indexes the 256-entry
+`NOTE_PITCH_LO / NOTE_PITCH_HI` tables directly by `note` (not `note-1`). The
+player uses plain 8-bit addition for TR shifts, so `current_note` can reach any
+value `0..255`. `PatternEvent.sid_freq_word()` returns the same 16-bit value
+the player will latch onto `$D400/$D401` (without the per-voice detune;
+V0=+0, V1=+1, V2=+2 added by the player on `freq_lo`).
 
 #### sidTAB rows (`$5F00..` × 15 bytes)
 
@@ -216,7 +218,7 @@ the bitmap. Column meanings:
 | low    | 7   | `WGl`  | Sets `ctrl_eor`: XOR mask applied to `ctrl_main` each frame before emit |
 | low    | 5   | `AD`   | Sets the voice's attack/decay byte (emitted to `$D405`)     |
 | low    | 4   | `SR`   | Sets the voice's sustain/release byte (emitted to `$D406`)  |
-| low    | 3   | `TR`   | Sets `current_note`: bit 7 set = absolute; bit 7 clear = adds to transpose buffer (= last GATE_N note) |
+| low    | 3   | `TR`   | Sets `current_note`: plain 8-bit add to transpose buffer (= last GATE_N note), no mask, result wraps at $FF |
 | low    | 2   | `AF`   | Sets `slide_mode`: `$00` = no slide, `$01..$7F` = portamento, `$80..$FF` = active slide |
 | low    | 1   | `PW`   | Sets `pulse_hi = byte`, `pulse_lo = byte & $F0` (12-bit `$YX` PW encoding; emitted to `$D402/$D403`) |
 | high   | 7   | `PS`   | Sets `ps_depth`: pulse-width sweep depth + direction (bit 7 = direction) |

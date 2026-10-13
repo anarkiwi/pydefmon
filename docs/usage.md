@@ -64,7 +64,7 @@ of every HVSC defMON tune. Its `info` reports the decoded replay `layout`
 `cia_timer`), `speed` (play calls per PAL frame) and `dynamic` (variable timer).
 
 ```bash
-pip install "pysidtracker[survey]>=0.11.1"
+pip install "pysidtracker[survey]>=0.12.0"
 python -m pysidtracker.survey find $HVSC --player '^defmon$' --out .hvsc-survey/tunes.csv
 PYTHONPATH=scripts python -m pysidtracker.survey run $HVSC .hvsc-survey/tunes.csv \
     --work .hvsc-survey --render oracle_hvsc:render --jobs 32

@@ -9,6 +9,8 @@ import numpy as np
 import pytest
 
 from pysidtracker import SidParseError
+from pysidtracker.cadence import Cadence
+from pysidtracker.registers import PAL_CLOCK_HZ, PAL_CYCLES_PER_FRAME
 from pysidtracker.sidid import sidid_signatures
 
 from pydefmon import DefmonPlayer
@@ -47,6 +49,15 @@ def test_render_matches_player_and_reports_variant(relpath, layout):
         "speed": 1,
         "dynamic": False,
     }
+
+
+def test_render_reports_unknown_trigger(monkeypatch):
+    data = _tune("MUSICIANS/I/Ilkke/Glow_Worm.sid")
+    unknown = Cadence(PAL_CYCLES_PER_FRAME, None, PAL_CLOCK_HZ)
+    monkeypatch.setattr(oracle_hvsc, "playroutine_cadence", lambda *_, **__: unknown)
+    grid, info = oracle_hvsc.render(data, 1, 20)
+    np.testing.assert_array_equal(grid, DefmonPlayer(data, subtune=0).render_grid(20))
+    assert (info["trigger"], info["speed"]) == (None, 1)
 
 
 def test_render_selects_one_based_subtune():

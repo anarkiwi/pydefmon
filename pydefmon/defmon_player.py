@@ -84,8 +84,7 @@ class DefmonPlayer(EmuPlayer):
     def cycles_per_frame(self) -> int:
         """CPU cycles between consecutive play calls (the play-routine cadence).
 
-        From :func:`pysidtracker.cadence.playroutine_cadence`: the tune's CIA
-        Timer-A latch (``latch + 1``) if init programs one, else the PAL/NTSC
-        video frame. Multi-speed tunes report their per-NMI period here.
+        ``cycles_per_call`` of :func:`pysidtracker.cadence.playroutine_cadence`,
+        derived from how the tune programs its interrupts.
         """
         return self._period

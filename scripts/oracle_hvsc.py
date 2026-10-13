@@ -21,7 +21,7 @@ def render(data, song, nframes):
     info = {
         "layout": tune.replay_layout,
         "rsid": data[:4] == b"RSID",
-        "trigger": cadence.source.value,
+        "trigger": cadence.source and cadence.source.value,
         "speed": round(PAL_CYCLES_PER_FRAME / cadence.cycles_per_call),
         "dynamic": cadence.dynamic,
     }

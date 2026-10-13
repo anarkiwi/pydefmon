@@ -52,9 +52,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
       - name: black --check
-        run: black --check --target-version py311 pydefmon tests
+        run: black --check --target-version py311 pydefmon scripts tests
       - name: pylint
-        run: pylint pydefmon
+        run: pylint pydefmon scripts
 
   oracle:
     # Byte-exact comparison of DefmonPlayer's py65 render against the sidtrace

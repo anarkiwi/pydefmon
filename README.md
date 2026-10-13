@@ -43,6 +43,7 @@ See [docs/usage.md](docs/usage.md) for editing, the register-write API, and the
 shared `pysidtracker` command line (`info` / `reglog` / `wav`, which pydefmon
 plugs into), and [docs/format.md](docs/format.md) for the canonical file-format
 and runtime-RAM reference.
+The [HVSC oracle survey](docs/usage.md#hvsc-oracle-survey) runs the player against every HVSC defMON tune.
 
 ## Development
 

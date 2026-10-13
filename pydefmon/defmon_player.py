@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Union
 
 from pysidtracker import EmuPlayer, SidImage
+from pysidtracker import registers as reg
 from pysidtracker.cadence import playroutine_cadence
 
 from pydefmon.defmon import DefmonError
@@ -42,7 +43,8 @@ class DefmonPlayer(EmuPlayer):
 
     Construct from replay bytes, a path, or a :class:`~pysidtracker.SidImage`;
     the header's ``startSong`` selects the subtune unless ``subtune`` overrides
-    it. Drive it with the inherited :meth:`~pysidtracker.MemPlayer.play_frame`
+    it. Play calls run at the tune's play-routine cadence and osc3/env3 reads
+    come from the SID model the header names. Drive it with the inherited :meth:`~pysidtracker.MemPlayer.play_frame`
     (per-frame ``(reg, value)`` writes, ``reg`` a ``0..24`` SID register offset)
     or :meth:`~pysidtracker.MemPlayer.render_grid` (per-frame 25-register grid);
     both come from :class:`~pysidtracker.EmuPlayer`, byte-exact against the
@@ -61,13 +63,21 @@ class DefmonPlayer(EmuPlayer):
                 "DefmonPlayer needs a PSID/RSID replay with an init routine; "
                 "a bare .prg workfile carries no player -- use DefmonSong to read it"
             )
-        self._image = image
         init = header.init_address or header.real_load_address
         play = header.play_address or init
         if subtune is None:
             subtune = (header.start_song or 1) - 1
         super().__init__(
-            image.image, image.load, init, play, subtune, illegal_opcodes=True
+            image.image,
+            image.load,
+            init,
+            play,
+            subtune,
+            illegal_opcodes=True,
+            sid_model=reg.sid_model_for_flags(header.flags),
+            cycles_per_frame=playroutine_cadence(
+                image, subtune=subtune
+            ).cycles_per_call,
         )
 
     @property
@@ -78,4 +88,4 @@ class DefmonPlayer(EmuPlayer):
         Timer-A latch (``latch + 1``) if init programs one, else the PAL/NTSC
         video frame. Multi-speed tunes report their per-NMI period here.
         """
-        return playroutine_cadence(self._image).cycles_per_call
+        return self._period

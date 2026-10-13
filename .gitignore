@@ -222,3 +222,4 @@ build/tunecache/
 
 # sidtrace oracle cache (HVSC tunes + oracle CSVs; never committed)
 .oracle-cache/
+.hvsc-survey/

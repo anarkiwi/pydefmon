@@ -54,6 +54,27 @@ pysidtracker wav    path/to/tune.sid /tmp/tune.wav  --seconds 60 --model 8580
 
 `reglog` and `wav` render the tune's own replay for `--seconds` of playback.
 
+## HVSC oracle survey
+
+[`scripts/oracle_hvsc.py`](../scripts/oracle_hvsc.py) plugs `DefmonPlayer` into
+the [`pysidtracker.survey`](https://github.com/anarkiwi/pysidtracker/blob/main/docs/survey.md)
+whole-song comparison against the `sidtrace` oracle (Docker), over every subtune
+of every HVSC defMON tune. Its `info` reports the decoded replay `layout`
+(`editor` / `goto80`), `rsid`, the play `trigger` (`pal_video` / `ntsc_video` /
+`cia_timer`), `speed` (play calls per PAL frame) and `dynamic` (variable timer).
+
+```bash
+pip install "pysidtracker[survey]>=0.11.0"
+python -m pysidtracker.survey find $HVSC --player '^defmon$' --out .hvsc-survey/tunes.csv
+PYTHONPATH=scripts python -m pysidtracker.survey run $HVSC .hvsc-survey/tunes.csv \
+    --work .hvsc-survey --render oracle_hvsc:render --jobs 32
+python -m pysidtracker.survey triage .hvsc-survey
+PYTHONPATH=scripts python -m pysidtracker.survey diff $HVSC .hvsc-survey/tunes.csv <md5>_<song> \
+    --work .hvsc-survey --render oracle_hvsc:render
+```
+
+`.hvsc-survey/` holds copyright-derived traces and is gitignored.
+
 ## What's in the package
 
 - [`DefmonSong`](../pydefmon/defmon.py) — the 22887-byte runtime RAM image at

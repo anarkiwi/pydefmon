@@ -61,7 +61,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pysidtracker import BaseSidParser, SidError, SidImage, parse_prg
+from pysidtracker import BaseSidParser, SidError, SidImage, SidParseError, parse_prg
 from pysidtracker.registers import PAL_CLOCK_HZ
 
 from pydefmon._load_format import (
@@ -105,7 +105,11 @@ assert len(NOTE_PITCH_HI) == 128
 
 
 class DefmonError(SidError, ValueError):
-    """Raised when a file does not look like a defMON tune."""
+    """Base class for pydefmon errors."""
+
+
+class DefmonParseError(DefmonError, SidParseError):
+    """Raised when a file does not look like a defMON tune, or cannot be decoded."""
 
 
 class DefmonSong:
@@ -144,6 +148,7 @@ class DefmonSong:
         # A replay carries the player, so its play-routine cadence can be
         # derived by tracing init; a workfile cannot.
         self.image_bytes: bytes = b""
+        self.replay_layout: str = ""
 
     # ---- construction ----
 
@@ -162,10 +167,10 @@ class DefmonSong:
         if raw[:4] in (b"PSID", b"RSID"):
             return cls.from_sid_bytes(raw)
         if len(raw) < 4:
-            raise DefmonError("file too short to contain a load address + body")
+            raise DefmonParseError("file too short to contain a load address + body")
         load_addr, body = parse_prg(raw)
         if load_addr != LOAD_ADDRESS:
-            raise DefmonError(
+            raise DefmonParseError(
                 f"unexpected load address ${load_addr:04X}, "
                 f"expected ${LOAD_ADDRESS:04X}"
             )
@@ -182,7 +187,7 @@ class DefmonSong:
                 dest_start=dest_start,
             )
         except CodecError as e:
-            raise DefmonError(f"LOAD-decode failed: {e}") from e
+            raise DefmonParseError(f"LOAD-decode failed: {e}") from e
         song = cls()
         for addr, val in writes.items():
             if LOAD_ADDRESS <= addr < LOAD_ADDRESS + STANDARD_SNAPSHOT_SIZE:
@@ -207,26 +212,29 @@ class DefmonSong:
         player signature and re-expands the compacted pattern bodies and
         sidTAB rows into the editor-layout runtime image this class models.
 
-        Raises :class:`DefmonError` if ``raw`` is not a recognised defMON
+        Raises :class:`DefmonParseError` if ``raw`` is not a recognised defMON
         replay (no player signature) or uses a packer variant whose compact
         data layout cannot be mapped to the editor layout.
         """
         image = SidImage.from_bytes(raw)
-        snapshot = depack_replay(image)
+        snapshot, layout = depack_replay(image), "editor"
         if snapshot is None:
             # Fall back to the older Goto80 compact-runtime encoding
             # (variable-length pattern streams + relocated sidTAB bodies)
             # that the standard editor-layout reconstruction can't map.
-            snapshot = decode_goto80_replay(image)
+            snapshot, layout = decode_goto80_replay(image), "goto80"
         if snapshot is None:
             if find_signature(image.mem) < 0:
-                raise DefmonError("not a defMON replay (player signature not found)")
-            raise DefmonError(
+                raise DefmonParseError(
+                    "not a defMON replay (player signature not found)"
+                )
+            raise DefmonParseError(
                 "unrecognised defMON replay data layout "
                 "(compact/indirect packer variant not supported)"
             )
         song = cls(snapshot)
         song.image_bytes = bytes(raw)
+        song.replay_layout = layout
         return song
 
     # ---- serialization ----
@@ -1279,7 +1287,7 @@ class DefmonSidParser(BaseSidParser):
     when it is packed / relocated behind an init routine.
     """
 
-    error_class: type = DefmonError
+    error_class: type = DefmonParseError
 
     def parse(self, data: bytes, **kwargs: Any) -> DefmonSong:
         return DefmonSong.from_bytes(data)

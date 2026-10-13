@@ -38,6 +38,7 @@ from pysidtracker import (
 
 from pydefmon.defmon import (
     DefmonError,
+    DefmonParseError,
     DefmonSidParser,
     DefmonSong,
     LOAD_ADDRESS,
@@ -53,6 +54,7 @@ from pydefmon.defmon_player import DefmonPlayer
 
 __all__ = [
     "DefmonError",
+    "DefmonParseError",
     "DefmonPlayer",
     "DefmonSidParser",
     "DefmonSong",

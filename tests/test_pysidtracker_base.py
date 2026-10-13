@@ -3,9 +3,9 @@
 
 import unittest
 
-from pysidtracker import BaseSidParser, SidError
+from pysidtracker import BaseSidParser, SidError, SidParseError
 
-from pydefmon.defmon import DefmonError, DefmonSidParser, DefmonSong
+from pydefmon.defmon import DefmonError, DefmonParseError, DefmonSidParser, DefmonSong
 from pydefmon._load_format import CodecError
 
 from tests._support import fixture_path
@@ -28,8 +28,14 @@ class TestErrorHierarchy(unittest.TestCase):
         self.assertTrue(issubclass(CodecError, SidError))
         self.assertTrue(issubclass(CodecError, ValueError))
 
+    def test_defmon_parse_error_is_defmon_and_sid_parse_error(self):
+        self.assertTrue(issubclass(DefmonParseError, DefmonError))
+        self.assertTrue(issubclass(DefmonParseError, SidParseError))
+
     def test_defmon_error_raises_as_value_error(self):
         with self.assertRaises(ValueError):
+            DefmonSong.from_bytes(b"\x00\x18")
+        with self.assertRaises(DefmonParseError):
             DefmonSong.from_bytes(b"\x00\x18")
         with self.assertRaises(SidError):
             DefmonSong.from_bytes(b"\x00\x18")
@@ -38,7 +44,7 @@ class TestErrorHierarchy(unittest.TestCase):
 class TestDefmonSidParser(unittest.TestCase):
     def test_is_base_sid_parser(self):
         self.assertIsInstance(DefmonSidParser(), BaseSidParser)
-        self.assertIs(DefmonSidParser.error_class, DefmonError)
+        self.assertIs(DefmonSidParser.error_class, DefmonParseError)
 
     def test_read_matches_from_bytes(self):
         path = _glow_worm_or_skip(self)

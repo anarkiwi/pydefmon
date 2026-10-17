@@ -81,7 +81,10 @@ PYTHONPATH=scripts python -m pysidtracker.survey diff $HVSC .hvsc-survey/tunes.c
   `$1800..$7166`, parsed from a `.prg` file or `.sid` replay. Region accessors
   for arrangers, sidTAB rows + DL bytes, pattern bodies; structured edit API
   (`set_step`, `set_jump`, `set_dl`, `set_jp`, `set_pattern_events`).
-  Round-trips through the `$D6C9` LOAD codec.
+  Round-trips through the `$D6C9` LOAD codec. A `.prg` and a `.sid` of the same
+  tune are the same music in two forms — `form` reports `"editor"` vs
+  `"packed"` and `diff(other)` compares them region-wise (rather than a raw
+  `snapshot ==`, which is false across the two forms).
 - [`PatternEvent`](../pydefmon/defmon.py) — one 4-byte pattern step
   (`flag, slot_a, slot_b, note`) with flag-bit constants and factories
   (`note_on`, `delay`, `alt_end`).

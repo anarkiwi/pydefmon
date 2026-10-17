@@ -8,16 +8,18 @@ is unreachable (offline).
 import unittest
 
 from pydefmon.defmon import (
+    DIFF_REGIONS,
     DefmonError,
     DefmonSong,
     LOAD_ADDRESS,
     PatternEvent,
+    RegionDiff,
     SidcallFrame,
     SidtabRow,
     STANDARD_SNAPSHOT_SIZE,
 )
 
-from tests._support import fixture_path
+from tests._support import fixture_path, resolve_tune
 
 
 def _glow_worm_or_skip(test):
@@ -661,6 +663,105 @@ class TestReprAndEquality(unittest.TestCase):
         r = repr(self.song)
         self.assertIn("DefmonSong", r)
         self.assertIn("snapshot=", r)
+
+
+class TestDiffAndForm(unittest.TestCase):
+    """``DefmonSong.diff`` region-wise comparison and ``DefmonSong.form``."""
+
+    def test_diff_regions_cover_snapshot(self):
+        total = sum(size for _name, _base, size in DIFF_REGIONS)
+        self.assertEqual(total, STANDARD_SNAPSHOT_SIZE)
+        tiles = sorted((base, base + size) for _n, base, size in DIFF_REGIONS)
+        self.assertEqual(tiles[0][0], LOAD_ADDRESS)
+        self.assertEqual(tiles[-1][1], LOAD_ADDRESS + STANDARD_SNAPSHOT_SIZE)
+        for i in range(len(tiles) - 1):
+            self.assertEqual(tiles[i][1], tiles[i + 1][0])
+
+    def test_diff_identity_all_identical(self):
+        song = DefmonSong()
+        song.set_step(0, v1=1)
+        song.set_dl(3, 0x42)
+        for r in song.diff(song):
+            self.assertIsInstance(r, RegionDiff)
+            self.assertEqual(r.differing, 0)
+            self.assertTrue(r.identical)
+
+    def test_diff_reports_full_region_set(self):
+        a, b = DefmonSong(), DefmonSong()
+        res = a.diff(b)
+        self.assertEqual(len(res), len(DIFF_REGIONS))
+        self.assertEqual([r.name for r in res], [n for n, _b, _s in DIFF_REGIONS])
+
+    def test_diff_isolates_changed_region(self):
+        a = DefmonSong()
+        a.set_step(0, v1=5)
+        b = DefmonSong(bytes(a.snapshot))
+        b.set_step(7, v2=9)  # only arranger_v2 differs
+        res = {r.name: r for r in a.diff(b)}
+        self.assertGreater(res["arranger_v2"].differing, 0)
+        self.assertTrue(res["arranger_v1"].identical)
+        self.assertTrue(res["arranger_v3"].identical)
+        self.assertTrue(res["patterns"].identical)
+
+    def test_form_marks_editor_for_scratch(self):
+        self.assertEqual(DefmonSong().form, "editor")
+
+    def test_diff_on_short_supplied_snapshot(self):
+        # Constructor pads any supply to STANDARD_SNAPSHOT_SIZE, so diff cannot OOB.
+        a = DefmonSong(b"\x11" * 16)
+        self.assertEqual(len(a.snapshot), STANDARD_SNAPSHOT_SIZE)
+        self.assertEqual(a.diff(DefmonSong())[6].name, "patterns")
+
+
+class TestEditorFormVsPackedForm(unittest.TestCase):
+    """A ``.prg`` (editor form) and its matching ``.sid`` (packed form) are
+    isomorphic but NOT byte-identical, pinned on the Dansa fixtures that the
+    issue cites (.DANSA IN from the defMON release / Dansa_in.sid in HVSC)."""
+
+    _DANSA_PRG = "dansa_in.prg"
+    _DANSA_SID = "MUSICIANS/G/Goto80/Dansa_in.sid"
+
+    def setUp(self):
+        try:
+            prg_path = fixture_path(self._DANSA_PRG)
+        except FileNotFoundError as e:
+            self.skipTest(str(e))
+        sid_path = resolve_tune(self._DANSA_SID)
+        if sid_path is None:
+            self.skipTest("Dansa_in.sid unavailable (offline HVSC mirror)")
+        self.prg = DefmonSong.from_file(str(prg_path))
+        self.sid = DefmonSong.from_file(str(sid_path))
+
+    def test_forms_are_distinct(self):
+        self.assertEqual(self.prg.form, "editor")
+        self.assertEqual(self.sid.form, "packed")
+
+    def test_both_resolve_to_the_same_structural_model(self):
+        for song in (self.prg, self.sid):
+            self.assertEqual(len(song.snapshot), STANDARD_SNAPSHOT_SIZE)
+            self.assertEqual(len(song.unpacked_snapshot()), STANDARD_SNAPSHOT_SIZE)
+            self.assertEqual(len(song.diff(song)), len(DIFF_REGIONS))
+
+    def test_content_is_not_byte_identical(self):
+        self.assertNotEqual(bytes(self.prg.snapshot), bytes(self.sid.snapshot))
+
+    def test_diff_reports_the_expected_divergences(self):
+        res = {r.name: r for r in self.prg.diff(self.sid)}
+        self.assertTrue(res["arranger_v1"].identical)
+        for name in ("arranger_v2", "arranger_v3", "sidtab_dl", "patterns", "sidtab"):
+            self.assertGreaterEqual(res[name].differing, 1, f"{name} should differ")
+
+    def test_diff_pins_the_packer_event_transform(self):
+        pe = self.prg.pattern_events(1)[1]
+        se = self.sid.pattern_events(1)[1]
+        # same note both forms (one step, packed differently): editor vs packed
+        self.assertEqual(pe.note, se.note)
+        self.assertEqual(pe.note, 0x30)  # B-3
+        # packed form renumbered the pattern and merged the empty steps into one hold
+        self.assertEqual(pe.slot_a, 0x28)
+        self.assertEqual(pe.duration, 2)
+        self.assertEqual(se.slot_a, 0x23)
+        self.assertEqual(se.duration, 14)
 
 
 if __name__ == "__main__":

@@ -9,8 +9,10 @@ defMON is a C64 tracker ([canonical site](https://defmon.vandervecken.com);
 latest release [V20201008](https://csdb.dk/release/?id=196474) on csdb.dk;
 see [Versions](#versions) for what `pydefmon` is verified against). `pydefmon`
 reads both the `.prg` editor workfile and the PSID/RSID `.sid` replay
-container, reconstructing the same `$1800..$7166` runtime RAM image either
-way, and plays it frame-accurately.
+container, decoding either to the same `$1800..$7166` structural model (a
+`.prg` is the composer's editor form and a `.sid` the packer's canonical form
+— see [Editor form vs packer form](#editor-form-vs-packer-form)), and plays a
+`.sid` replay frame-accurately.
 
 `DefmonPlayer` plays a `.sid` by running the tune's own relocatable replay on a
 jennings 6502; the [oracle test](../tests/test_oracle_hvsc.py) asserts its per-frame
@@ -88,8 +90,10 @@ HVSC ships defMON tunes not as `.prg` editor workfiles but as PSID/RSID `.sid`
 packer. This is a different container from the `.prg` workfile — there is no
 `$D6C9` RLE stream. `pydefmon`'s public reader (`DefmonSong.from_bytes` /
 `from_file`, `DefmonSidParser.read`) dispatches on the `PSID`/`RSID` magic and
-reconstructs the same `$1800..$7166` runtime image the `.prg` path produces, so
-`DefmonPlayer` and every region accessor work identically afterwards.
+reconstructs the same `$1800..$7166` *structural model* the `.prg` path
+produces, so `DefmonPlayer` and every region accessor apply to both — but the
+*content* is the packer's canonical form, not the composer's editor form
+(see [Editor form vs packer form](#editor-form-vs-packer-form)).
 `DefmonSidParser.recognize()` finds defMON's player signature (the `$1022`
 SID-write band — the same anchor sidid keys `DefMon` on), so `detect()` locates
 the replay even when it is relocated; the container is unwrapped through the
@@ -272,6 +276,31 @@ the bitmap. Column meanings:
 `pack({col: val})` / `to_bytes()` go back. Walk a cascade from row `Y` with
 `DefmonSong.sidcall_frames(Y)` — returns a `list[SidcallFrame]` terminating at
 the first STop, JP loopback, or `max_frames`.
+
+## Editor form vs packer form
+
+Both the `.prg` editor workfile and a `.sid` replay decode to the *same
+structural model* — the 22887-byte `$1800..$7166` editor-layout snapshot — so
+every region accessor, the edit API, and `unpacked_snapshot()` apply to both.
+But for the *same tune* the two are **different content forms** and are **not
+byte-identical**, so do not assert `.prg.unpacked_snapshot() ==
+sid.unpacked_snapshot()`:
+
+* the **editor form** (`.prg`) is exactly what the composer last saved: original
+  pattern and sidTAB-row numbering, one event per step as authored, and the
+  `$715A..$715C` tempo bytes populated.
+* the **packed form** (`.sid`) is defMON's `$D02C`-packer output: patterns and
+  sidTAB rows are deduped and renumbered, runs of empty steps are folded into
+  longer durations, and the `$715A..$715C` tempo is zeroed (the replay cadence
+  comes from the player's interrupt programming, not from `$715A`).
+
+These are isomorphic, semantics-preserving rearrangements — both describe the
+same music. `DefmonSong.form` reports which form a song holds
+(`"editor"` / `"packed"`), and `DefmonSong.diff(other)` gives a region-wise
+comparison in `DIFF_REGIONS` order: for a `.prg` against its matching `.sid`
+it reports which regions agree and which differ, instead of a false whole-image
+`==`. Musical equivalence (the byte-exact rendered SID stream) is verified
+separately by the oracle tests, not by snapshot comparison.
 
 ## Player and playback notes
 

@@ -13,9 +13,11 @@ HVSC tunes.
 
 Reads `.sid` files (PSID/RSID containers) and bare `.prg` editor workfiles
 through the shared [`pysidtracker`](https://github.com/anarkiwi/pysidtracker)
-base, reconstructing the same runtime image either way — the relocatable player
-is located by signature and container headers are not trusted. The player runs
-the replay embedded in a `.sid`.
+base, decoding both to the same `$1800..$7166` structural model. A `.prg` is
+the composer's editor form and a `.sid` the packer's canonical form — the same
+tune, not the same bytes — compare them with `DefmonSong.diff` (not a raw
+`snapshot ==`). The relocatable player is located by signature; container
+headers are not trusted; the player runs the replay embedded in a `.sid`.
 
 ## Install
 

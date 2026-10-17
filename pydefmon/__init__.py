@@ -2,8 +2,11 @@
 
 Top-level API:
 
-* :class:`DefmonSong` — read / edit / write defMON ``.prg`` files
-  via :meth:`DefmonSong.from_file` and :meth:`DefmonSong.to_file`.
+* :class:`DefmonSong` — read / edit / write defMON ``.prg`` files and
+  ``.sid`` replays via :meth:`DefmonSong.from_file` / :meth:`DefmonSong.to_file`.
+  A ``.prg`` and a ``.sid`` of the same tune are the same music in two
+  content forms (:attr:`DefmonSong.form`); compare them with
+  :meth:`DefmonSong.diff`, not a raw ``snapshot`` ``==``.
 * :class:`PatternEvent` — one 4-byte step in a pattern body
   (flag + slot_a + slot_b + note).
 * :class:`SidtabRow` — one 15-byte sidTAB row (per-frame envelope
@@ -37,6 +40,7 @@ from pysidtracker import (
 )
 
 from pydefmon.defmon import (
+    DIFF_REGIONS,
     DefmonError,
     DefmonParseError,
     DefmonSidParser,
@@ -45,6 +49,7 @@ from pydefmon.defmon import (
     NOTE_PITCH_HI,
     NOTE_PITCH_LO,
     PatternEvent,
+    RegionDiff,
     SidcallFrame,
     SidtabRow,
     STANDARD_SNAPSHOT_END,
@@ -53,6 +58,7 @@ from pydefmon.defmon import (
 from pydefmon.defmon_player import DefmonPlayer
 
 __all__ = [
+    "DIFF_REGIONS",
     "DefmonError",
     "DefmonParseError",
     "DefmonPlayer",
@@ -62,6 +68,7 @@ __all__ = [
     "NOTE_PITCH_HI",
     "NOTE_PITCH_LO",
     "PatternEvent",
+    "RegionDiff",
     "RegWrite",
     "SidcallFrame",
     "SidtabRow",

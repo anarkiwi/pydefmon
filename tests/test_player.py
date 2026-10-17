@@ -101,6 +101,17 @@ class TestDefmonPlayer(unittest.TestCase):
         grid = DefmonPlayer(bytes(raw)).render_grid(3)
         self.assertEqual(len(grid), 3)
 
+    def test_loader_zero_page_words(self):
+        # play: LDA $AD; STA $D400; LDA $AE; STA $D401; LDA $2D; STA $D402; RTS
+        # -> the load start hi ($AD) and load end lo ($AE, $2D) of the loader.
+        raw = bytearray(synthetic_replay())
+        play_off = 0x7C + 0x20  # data offset + play offset -> $1020
+        code = bytes.fromhex("a5ad8d00d4a5ae8d01d4a52d8d02d460")
+        raw[play_off : play_off + len(code)] = code
+        end = SidImage.from_bytes(bytes(raw)).end
+        row = DefmonPlayer(bytes(raw)).render_grid(1)[0]
+        self.assertEqual(row[:3], [0x10, end & 0xFF, end & 0xFF])
+
 
 class TestDefmonPlayerRealReplay(unittest.TestCase):
     """A real HVSC replay drives the player when the corpus is reachable."""

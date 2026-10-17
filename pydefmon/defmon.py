@@ -59,6 +59,7 @@ available for power users (:attr:`pattern_bodies`,
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from pysidtracker import BaseSidParser, SidError, SidImage, SidParseError, parse_prg
@@ -76,6 +77,37 @@ from pydefmon._goto80_format import decode_replay as decode_goto80_replay
 LOAD_ADDRESS = LOAD_ADDR
 STANDARD_SNAPSHOT_END = 0x7167
 STANDARD_SNAPSHOT_SIZE = STANDARD_SNAPSHOT_END - LOAD_ADDRESS  # 22887
+
+
+@dataclass(frozen=True)
+class RegionDiff:
+    """A named RAM region's byte comparison between two songs (from ``diff``).
+
+    ``name`` / ``base`` / ``size`` identify the region; ``differing`` counts
+    unequal positions and ``identical`` is ``differing == 0``.
+    """
+
+    name: str
+    base: int
+    size: int
+    differing: int
+
+    @property
+    def identical(self) -> bool:
+        return self.differing == 0
+
+
+#: Non-overlapping, address-ordered regions for ``diff``; sizes sum to STANDARD_SNAPSHOT_SIZE.
+DIFF_REGIONS: tuple[tuple[str, int, int], ...] = (
+    ("song_position", 0x1800, 0x200),
+    ("pattern_ptrs", 0x1A00, 0x100),
+    ("arranger_v1", 0x1B00, 0x100),
+    ("arranger_v2", 0x1C00, 0x100),
+    ("arranger_v3", 0x1D00, 0x100),
+    ("sidtab_dl", 0x1E00, 0x100),
+    ("patterns", 0x1F00, 0x4000),
+    ("sidtab", 0x5F00, STANDARD_SNAPSHOT_END - 0x5F00),
+)
 
 
 # ----------------------------------------------------------------------
@@ -283,6 +315,16 @@ class DefmonSong:
     def end_address(self) -> int:
         """Address one past the last snapshot byte at runtime."""
         return LOAD_ADDRESS + len(self.snapshot)
+
+    @property
+    def form(self) -> str:
+        """Logical content form: ``"editor"`` (.prg / scratch) or ``"packed"`` (.sid).
+
+        A ``.prg`` holds the composer's authoring form; a ``.sid`` is
+        defMON's ``$D02C``-packed canonical form (renumbered patterns/sidTAB
+        rows, merged empty steps, tempo zeroed). Use :meth:`diff` to compare.
+        """
+        return "packed" if self.replay_layout else "editor"
 
     # ---- region accessors ----
 
@@ -722,6 +764,21 @@ class DefmonSong:
         dl = self.snapshot[0x1E00 - LOAD_ADDRESS + index]
         return SidtabRow.parse(index, raw, jp=jp, dl=dl)
 
+    def diff(self, other: "DefmonSong") -> list[RegionDiff]:
+        """Region-wise byte comparison against another song, in ``DIFF_REGIONS`` order.
+
+        Compares stored snapshots over the named regions tiling
+        ``$1800..$7166``. For a ``.prg`` vs its matching ``.sid`` (same tune,
+        different form) it reports which regions agree and which differ.
+        """
+        a, b = self.snapshot, other.snapshot
+        out = []
+        for name, base, size in DIFF_REGIONS:
+            off = base - LOAD_ADDRESS
+            differing = sum(1 for i in range(size) if a[off + i] != b[off + i])
+            out.append(RegionDiff(name, base, size, differing))
+        return out
+
     def unpacked_snapshot(self) -> bytearray:
         """Return a copy of the snapshot with runtime pointers
         reconstructed: ``$1800,X``/``$1900,X`` filled with the active
@@ -1057,10 +1114,9 @@ class PatternEvent:
       sidTAB TR-relative shifts). Also zeros the voice's
       slide-accumulator + slide-mode so the new note starts clean.
     * bits 3..0 — ``duration``: how many frames the player holds
-      this row before reading the next pattern step. The player's
-      cadence is 1 main-tick NMI per ``cycles_per_frame`` cycles
-      (~24 ms for .GLOW WORM), so ``duration=4`` means ~96 ms hold
-      under PAL.
+      this row before reading the next pattern step. The cadence
+      is 1 main-tick NMI per ``cycles_per_frame`` cycles, so a
+      larger ``duration`` holds the row for more frames under PAL.
 
     Build canonical events via the factories: :meth:`note_on`,
     :meth:`delay`, :meth:`alt_end`, :meth:`silent_pattern`. Edit

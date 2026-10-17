@@ -4,7 +4,8 @@
 [![PyPI](https://img.shields.io/pypi/v/pydefmon.svg)](https://pypi.org/project/pydefmon/)
 
 Pure-Python reader, writer, and player for
-[defMON](https://csdb.dk/release/?id=199997) C64 tracker tunes. `DefmonPlayer`
+[defMON](https://defmon.vandervecken.com) C64 tracker tunes (latest
+[V20201008](https://csdb.dk/release/?id=196474) on csdb). `DefmonPlayer`
 runs a tune's own relocatable replay on a jennings 6502 and emits the per-frame SID
 register writes, verified byte-exact against the
 [`sidtrace`](https://github.com/anarkiwi/sidtrace) `sidplayfp` oracle over real

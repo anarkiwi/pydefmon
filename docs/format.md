@@ -5,9 +5,12 @@ consumed by `pydefmon`.
 
 ## Overview
 
-defMON is a C64 tracker (csdb.dk release 199997). `pydefmon` reads both the
-`.prg` editor workfile and the PSID/RSID `.sid` replay container, reconstructing
-the same `$1800..$7166` runtime RAM image either way, and plays it frame-accurately.
+defMON is a C64 tracker ([canonical site](https://defmon.vandervecken.com);
+latest release [V20201008](https://csdb.dk/release/?id=196474) on csdb.dk;
+see [Versions](#versions) for what `pydefmon` is verified against). `pydefmon`
+reads both the `.prg` editor workfile and the PSID/RSID `.sid` replay
+container, reconstructing the same `$1800..$7166` runtime RAM image either
+way, and plays it frame-accurately.
 
 `DefmonPlayer` plays a `.sid` by running the tune's own relocatable replay on a
 jennings 6502; the [oracle test](../tests/test_oracle_hvsc.py) asserts its per-frame
@@ -16,6 +19,44 @@ SID-register grid matches the [`sidtrace`](https://github.com/anarkiwi/sidtrace)
 authoritative for the byte layout the reader/writer (`DefmonSong`) exposes;
 tunes are copyright and not redistributed with `pydefmon` -- tests fetch and
 cache them on demand.
+
+## Versions
+
+`pydefmon` is verified against **defMON V20201008** on the editor-worktune
+path: the `.prg` fixtures (`tests/_support/__init__.py`) ship the
+[V20201008](https://csdb.dk/release/?id=196474) release's worktunes, and every
+assertion in this document — the `$D6C9` LOAD codec, the `$1800..$7166` RAM
+layout, the `$CF42`/`$D004` post-LOAD passes — derives from that build. The
+HVSC `.sid` corpus additionally spans the Goto80-era (2008) compact-runtime
+replay driver, so both `.sid` decode families verify byte-exact — but
+worktunes from any other build are not part of the test corpus.
+
+defMON's worktune/replay encoding changed across builds (per the
+[defMON changelog](https://defmon.vandervecken.com/doku.php?id=download:download)):
+
+* the 2008 builds save raw `$1700` worktunes and ship the compact-runtime
+  replay driver (the Goto80 tunes in HVSC);
+* V20140615 added the stereo config;
+* V20141108 added the sync delay;
+* V20171024 added the post-LOAD `$CFB8` pattern-marker pass;
+* V20171026 / V20180211 write larger worktunes.
+
+defMON release series on csdb.dk:
+
+| Build    | CSDb release                                            |
+|----------|---------------------------------------------------------|
+| V20140612| [150898](https://csdb.dk/release/?id=150898)           |
+| V20140615| [150897](https://csdb.dk/release/?id=150897)           |
+| V20140711| [150896](https://csdb.dk/release/?id=150896)           |
+| V20141108| [150895](https://csdb.dk/release/?id=150895)           |
+| V20141111| [159912](https://csdb.dk/release/?id=159912)           |
+| V20171024| [159943](https://csdb.dk/release/?id=159943)           |
+| V20171026| [160858](https://csdb.dk/release/?id=160858)           |
+| V20181027| [170640](https://csdb.dk/release/?id=170640)           |
+| V20181101| [170858](https://csdb.dk/release/?id=170858)           |
+| V20200601| [191814](https://csdb.dk/release/?id=191814)           |
+| V20200918| [195809](https://csdb.dk/release/?id=195809)           |
+| V20201008| [196474](https://csdb.dk/release/?id=196474) — the build `pydefmon` tests |
 
 ## Container and detection notes
 
@@ -90,9 +131,9 @@ bitmask bodies — rather than the absolute-indexed 4-byte-row tables above.
 the build's own track-stepper / orderlist code idioms) and re-expands them into
 the editor-layout snapshot; `from_sid_bytes` uses it as the fallback after the
 canonical reconstruction. `tests/test_hvsc_sid_corpus.py` asserts the whole
-corpus recognises and decodes soundly, and `tests/test_goto80_oracle.py` verifies
-the Goto80 reconstruction frame-exact on the cascade (waveform + envelope)
-registers against a clean-room jennings oracle.
+corpus recognises and decodes soundly, and `tests/test_oracle_hvsc.py`
+(`goto80_rentacop`, `goto80_ponky`, `goto80_reloaded_*`) verifies the Goto80
+reconstruction frame-exact against the `sidtrace` `sidplayfp` oracle.
 
 ## Data model
 
@@ -342,7 +383,9 @@ does.
 
 ## References
 
-- [defMON](https://csdb.dk/release/?id=199997) (csdb.dk).
+- [defMON](https://defmon.vandervecken.com) — canonical site; latest tested
+  release [V20201008](https://csdb.dk/release/?id=196474) on csdb.dk;
+  [changelog](https://defmon.vandervecken.com/doku.php?id=download:download).
 - [`sidtrace`](https://github.com/anarkiwi/sidtrace) — the `sidplayfp` register
   oracle the player is checked against; see
   [`tests/test_oracle_hvsc.py`](../tests/test_oracle_hvsc.py).

@@ -1,7 +1,9 @@
-"""Lint check: every tracked .py file under the package + tests must
-be ``black --check`` clean."""
+"""Lint checks on the repo: every tracked .py file under the package + tests
+must be ``black --check`` clean, and every ``tests/...py`` path cited in the
+docs must exist."""
 
 import os
+import re
 import shutil
 import subprocess
 import unittest
@@ -9,6 +11,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LINT_DIRS = ("pydefmon", "scripts", "tests")
+
+DOC_FILES = (REPO_ROOT / "README.md", *(REPO_ROOT / "docs").glob("*.md"))
+TEST_REF_RE = re.compile(r"(?<![\w.-])(tests/[\w-]+(?:/[\w-]+)*\.py)")
 
 
 def _python_files():
@@ -49,6 +54,24 @@ class TestBlackFormatting(unittest.TestCase):
         if result.returncode != 0:
             offenders = result.stderr.strip() or result.stdout.strip()
             self.fail("black --check failed; run `black .` to fix:\n" + offenders)
+
+
+class TestDocsTestReferences(unittest.TestCase):
+    """Every ``tests/...py`` path cited in the docs must exist in the repo."""
+
+    def test_cited_test_files_exist(self):
+        self.assertGreater(len(DOC_FILES), 1, "no doc files found to lint against")
+        missing = []
+        for doc in sorted(DOC_FILES):
+            cited = sorted(set(TEST_REF_RE.findall(doc.read_text(encoding="utf-8"))))
+            for ref in cited:
+                if not (REPO_ROOT / ref).is_file():
+                    missing.append(f"{doc.relative_to(REPO_ROOT)}: {ref}")
+        self.assertEqual(
+            missing,
+            [],
+            "docs cite test files that do not exist:\n" + "\n".join(missing),
+        )
 
 
 if __name__ == "__main__":

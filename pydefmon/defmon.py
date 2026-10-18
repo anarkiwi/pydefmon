@@ -80,6 +80,11 @@ LOAD_ADDRESS = LOAD_ADDR
 STANDARD_SNAPSHOT_END = 0x7167
 STANDARD_SNAPSHOT_SIZE = STANDARD_SNAPSHOT_END - LOAD_ADDRESS  # 22887
 
+# Post-LOAD pass gates (select $CF42/$D004/$CFB8 when non-zero; see unpacked_snapshot)
+GATE_SONG_POSITION = 0x715E - LOAD_ADDRESS
+GATE_PAT_BASE = 0x715F - LOAD_ADDRESS
+GATE_PATTERN_MARKER = 0x7162 - LOAD_ADDRESS
+
 
 @dataclass(frozen=True)
 class RegionDiff:
@@ -293,8 +298,10 @@ class DefmonSong:
         encoder (the faithful ``$D626`` walk). When LOADed, writes the song
         into RAM at ``$1800..decode_top``. Applies the save-prep passes —
         ``$11`` position markers and zeroed pattern-pointer table — over the
-        encode range; ``$CF42``/``$D004`` rebuild both regions at LOAD time.
-        An unmodified load round-trips byte-identical to the original file.
+        encode range, and keeps the source file's post-LOAD gates, so
+        defMON's LOAD runs (and clears) exactly the passes the source
+        elected. An unmodified load round-trips byte-identical to the
+        original file.
         """
         snap = bytearray(self.snapshot)
         off_lo = 0x1800 - LOAD_ADDRESS  # song_position_lo
@@ -377,14 +384,16 @@ class DefmonSong:
     def song_position_arrays(self) -> memoryview:
         """``$1800..$19FF`` (512 bytes). Per-song-step pointer cache;
         defMON's saver leaves ``$11`` markers wherever the position is
-        active and computes the runtime pointers post-LOAD via $CF42.
+        active; $CF42 (at LOAD, when gate ``$715E`` is non-zero) computes
+        the runtime pointers.
         ``unpacked_snapshot()`` reconstructs the live values."""
         return self._region(0x1800, 0x200)
 
     @property
     def pattern_pointer_table(self) -> memoryview:
-        """``$1A00..$1AFF`` (256 bytes). Always zero in saved files;
-        runtime fill done by defMON's $D004 secondary pass.
+        """``$1A00..$1AFF`` (256 bytes). Zeroed by defMON on save;
+        ``$D004`` fills it at LOAD only when gate ``$715F`` is non-zero
+        (older editors' saves leave it zero after LOAD).
         ``unpacked_snapshot()`` computes ``$1A00,X``/``$1A80,X`` =
         low/high of ``$1F00 + X*$80``."""
         return self._region(0x1A00, 0x100)
@@ -437,8 +446,8 @@ class DefmonSong:
 
         * ``$11`` -- ACTIVE LINEAR: row Y is active; cascade advances to
           row Y+1 after DL underflow. ``$CF42`` rewrites this to ``$5F``
-          (runtime pointer-hi) at LOAD time; the paired ``$1800,Y`` is
-          rewritten to ``Y * $0F`` (pointer-lo).
+          (runtime pointer-hi) at LOAD time when gate ``$715E`` is non-zero;
+          the paired ``$1800,Y`` is rewritten to ``Y * $0F`` (pointer-lo).
         * ``$00`` -- INACTIVE / JUMP-SOURCE: cascade does not advance
           linearly to this row. ``$1800,Y`` (paired) holds the JP
           target row index that the player jumps to instead. ``$CF42``
@@ -820,31 +829,44 @@ class DefmonSong:
     def unpacked_snapshot(self) -> bytearray:
         """Return the snapshot in post-LOAD form, with defMON's three gated passes.
 
-        $CF42 rewrites active ($1900,X != 0) rows to ``$5F00 + X*$0F``
-        pointers; $D004 fills ``$1A00,X``/``$1A80,X`` with ``$1F00 + X*$80``;
-        $CFB8 sets bit 7 of every pattern's step-31 byte (offset ``$7C``).
+        defMON's ``post_load_chain`` ($CEE4..$CFEE) runs each pass only when
+        its gate byte is non-zero, and each pass that runs clears its gate:
+
+        * gate ``$715E`` → ``$CF42`` rewrites active (``$1900,X != 0``) rows to
+          ``$5F00 + X*$0F`` pointers;
+        * gate ``$715F`` → ``$D004`` fills ``$1A00,X``/``$1A80,X`` with
+          ``$1F00 + X*$80``;
+        * gate ``$7162`` → ``$CFB8`` sets bit 7 of every pattern's step-31 byte
+          (offset ``$7C``).
+
+        A file saved by an editor without a pass carries that gate zero and
+        keeps its raw decoded bytes there after LOAD (e.g. V20140612 saves
+        ``$715F`` zero, so LOAD leaves ``$1A00..$1AFF`` zero).
         """
         out = bytearray(self.snapshot)
-        OFF_1800 = 0x1800 - LOAD_ADDRESS
-        OFF_1900 = 0x1900 - LOAD_ADDRESS
-        addr = 0x5F00
-        for x in range(256):
-            if out[OFF_1900 + x] != 0:
-                out[OFF_1800 + x] = addr & 0xFF
-                out[OFF_1900 + x] = (addr >> 8) & 0xFF
-            addr += 0x0F
-        OFF_1A00 = 0x1A00 - LOAD_ADDRESS
-        OFF_1A80 = 0x1A80 - LOAD_ADDRESS
-        OFF_1F = 0x1F00 - LOAD_ADDRESS
-        for x in range(128):
-            ptr = 0x1F00 + x * 0x80
-            out[OFF_1A00 + x] = ptr & 0xFF
-            out[OFF_1A80 + x] = (ptr >> 8) & 0xFF
-            out[OFF_1F + x * 0x80 + 0x7C] |= 0x80
-        # defMON clears each gate when its post-LOAD pass runs (all $01 on disk)
-        out[0x715E - LOAD_ADDRESS] = 0
-        out[0x715F - LOAD_ADDRESS] = 0
-        out[0x7162 - LOAD_ADDRESS] = 0
+        if out[GATE_SONG_POSITION] != 0:
+            OFF_1800 = 0x1800 - LOAD_ADDRESS
+            OFF_1900 = 0x1900 - LOAD_ADDRESS
+            addr = 0x5F00
+            for x in range(256):
+                if out[OFF_1900 + x] != 0:
+                    out[OFF_1800 + x] = addr & 0xFF
+                    out[OFF_1900 + x] = (addr >> 8) & 0xFF
+                addr += 0x0F
+            out[GATE_SONG_POSITION] = 0
+        if out[GATE_PAT_BASE] != 0:
+            OFF_1A00 = 0x1A00 - LOAD_ADDRESS
+            OFF_1A80 = 0x1A80 - LOAD_ADDRESS
+            for x in range(128):
+                ptr = 0x1F00 + x * 0x80
+                out[OFF_1A00 + x] = ptr & 0xFF
+                out[OFF_1A80 + x] = (ptr >> 8) & 0xFF
+            out[GATE_PAT_BASE] = 0
+        if out[GATE_PATTERN_MARKER] != 0:
+            OFF_1F = 0x1F00 - LOAD_ADDRESS
+            for x in range(128):
+                out[OFF_1F + x * 0x80 + 0x7C] |= 0x80
+            out[GATE_PATTERN_MARKER] = 0
         return out
 
     def __repr__(self) -> str:

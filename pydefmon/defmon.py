@@ -73,7 +73,7 @@ from pydefmon._load_format import (
     decode_load_stream,
     encode_worktune,
 )
-from pydefmon._sid_format import depack_replay, find_signature
+from pydefmon import _sid_format
 from pydefmon._goto80_format import decode_replay as decode_goto80_replay
 
 LOAD_ADDRESS = LOAD_ADDR
@@ -205,26 +205,56 @@ class DefmonSong:
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> "DefmonSong":
-        """Parse a defMON tune from raw container bytes.
+        """Parse a defMON tune from raw container bytes, dispatching on container.
 
-        Handles both containers defMON tunes ship in:
+        Accepts a ``$1800`` ``.prg`` editor workfile (``$D6C9`` RLE body), a
+        PSID/RSID ``.sid`` replay, and a defMON pack-save export PRG (the
+        ``$1000`` raw / ``$0801`` executable SHIFT+P saves), the last two via
+        :meth:`_from_replay`.
 
-        * a ``.prg`` editor workfile (``$1800`` load address + ``$D6C9``
-          RLE body) -- the format defMON's editor saves; and
-        * a PSID/RSID ``.sid`` *replay* file (the packed, relocatable
-          player + compacted tune data HVSC ships), dispatched to
-          :meth:`from_sid_bytes`.
+        Raises:
+            DefmonParseError: if ``raw`` matches none of the containers, a
+            replay has no defMON player signature, or its data layout cannot
+            be mapped to the editor layout.
         """
         if raw[:4] in (b"PSID", b"RSID"):
-            return cls.from_sid_bytes(raw)
+            return cls._from_replay(SidImage.from_bytes(raw), bytes(raw))
         if len(raw) < 4:
             raise DefmonParseError("file too short to contain a load address + body")
-        load_addr, body = parse_prg(raw)
-        if load_addr != LOAD_ADDRESS:
-            raise DefmonParseError(
-                f"unexpected load address ${load_addr:04X}, "
-                f"expected ${LOAD_ADDRESS:04X}"
-            )
+        load_addr, _body = parse_prg(raw)
+        if load_addr == LOAD_ADDRESS:
+            return cls._from_worktune(raw)
+        if _sid_format.prg_replay(raw) is not None:
+            return cls._from_replay(SidImage.from_prg(raw), bytes(raw))
+        raise DefmonParseError(
+            f"unexpected load address ${load_addr:04X}: not a ${LOAD_ADDRESS:04X} "
+            f"editor workfile and no defMON replay player found"
+        )
+
+    @classmethod
+    def from_file(cls, path: str) -> "DefmonSong":
+        with open(path, "rb") as f:
+            return cls.from_bytes(f.read())
+
+    @classmethod
+    def from_sid_bytes(cls, raw: bytes) -> "DefmonSong":
+        """Parse a defMON tune from a PSID/RSID ``.sid`` replay file.
+
+        HVSC ships defMON tunes as PSID/RSID replay images (a relocatable
+        player plus the tune's compacted data), a different container from
+        the ``.prg`` editor workfile :meth:`from_bytes` decodes.
+
+        Raises:
+            DefmonParseError: if ``raw`` is not a recognised defMON replay
+            (no player signature) or uses a packer variant whose compact data
+            layout cannot be mapped to the editor layout.
+        """
+        return cls._from_replay(SidImage.from_bytes(raw), bytes(raw))
+
+    @classmethod
+    def _from_worktune(cls, raw: bytes) -> "DefmonSong":
+        """Decode a ``$1800`` editor workfile body with the ``$D6C9`` LOAD codec."""
+        _load_addr, body = parse_prg(raw)
         # Trailer bytes encode dest_lo and dest_hi_offset.
         dest_lo = body[-2]
         dest_hi = body[-1] + 0x18
@@ -250,35 +280,14 @@ class DefmonSong:
         return song
 
     @classmethod
-    def from_file(cls, path: str) -> "DefmonSong":
-        with open(path, "rb") as f:
-            return cls.from_bytes(f.read())
-
-    @classmethod
-    def from_sid_bytes(cls, raw: bytes) -> "DefmonSong":
-        """Parse a defMON tune from a PSID/RSID ``.sid`` replay file.
-
-        HVSC ships defMON tunes as PSID/RSID replay images (a relocatable
-        player plus the tune's compacted data), a different container from
-        the ``.prg`` editor workfile :meth:`from_bytes` decodes. The replay
-        embeds the runtime data tables directly (no ``$D6C9`` RLE stream);
-        :func:`pydefmon._sid_format.depack_replay` recognises defMON's
-        player signature and re-expands the compacted pattern bodies and
-        sidTAB rows into the editor-layout runtime image this class models.
-
-        Raises :class:`DefmonParseError` if ``raw`` is not a recognised defMON
-        replay (no player signature) or uses a packer variant whose compact
-        data layout cannot be mapped to the editor layout.
-        """
-        image = SidImage.from_bytes(raw)
-        snapshot, layout = depack_replay(image), "editor"
+    def _from_replay(cls, image, container: bytes) -> "DefmonSong":
+        """Re-expand a defMON replay image into the editor-layout song model."""
+        snapshot, layout = _sid_format.depack_replay(image), "editor"
         if snapshot is None:
-            # Fall back to the older Goto80 compact-runtime encoding
-            # (variable-length pattern streams + relocated sidTAB bodies)
-            # that the standard editor-layout reconstruction can't map.
+            # Goto80 fallback: the older compact-runtime encoding the editor-layout map can't.
             snapshot, layout = decode_goto80_replay(image), "goto80"
         if snapshot is None:
-            if find_signature(image.mem) < 0:
+            if _sid_format.find_signature(image.mem) < 0:
                 raise DefmonParseError(
                     "not a defMON replay (player signature not found)"
                 )
@@ -287,7 +296,7 @@ class DefmonSong:
                 "(compact/indirect packer variant not supported)"
             )
         song = cls(snapshot)
-        song.image_bytes = bytes(raw)
+        song.image_bytes = container
         song.replay_layout = layout
         return song
 
@@ -1422,5 +1431,5 @@ class DefmonSidParser(BaseSidParser):
         return DefmonSong.from_bytes(data)
 
     def recognize(self, image: SidImage) -> "int | None":
-        addr = find_signature(image.mem)
+        addr = _sid_format.find_signature(image.mem)
         return addr if addr >= 0 else None

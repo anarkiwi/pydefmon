@@ -23,7 +23,9 @@ from typing import Union
 from pysidtracker import EmuPlayer, SidImage
 from pysidtracker import registers as reg
 from pysidtracker.cadence import playroutine_cadence
+from pysidtracker.header import write_psid
 
+from pydefmon import _sid_format
 from pydefmon.defmon import DefmonError, DefmonSong
 
 PlayerSource = Union[bytes, bytearray, str, Path, SidImage, DefmonSong]
@@ -76,10 +78,23 @@ class DefmonPlayer(EmuPlayer):
         image = _as_image(source)
         header = image.header
         if header is None or not (header.init_address or header.real_load_address):
-            raise DefmonError(
-                "DefmonPlayer needs a PSID/RSID replay with an init routine; "
-                "a bare .prg workfile carries no player -- use DefmonSong to read it"
+            # Pack-save export PRG (raw $1000 / executable $0801): player located by signature.
+            replay = _sid_format.prg_replay(bytes(image.container) + bytes(image.image))
+            if replay is None:
+                raise DefmonError(
+                    "DefmonPlayer needs a PSID/RSID replay with an init routine; "
+                    "a bare .prg workfile carries no player -- use DefmonSong to read it"
+                )
+            load, base = replay  # init = player base, play = base + 3, PAL + 8580
+            psid = write_psid(
+                load=load,
+                init=base,
+                play=base + 3,
+                image=bytes(image.image),
+                flags=0x20,
             )
+            image = SidImage.from_bytes(psid)
+            header = image.header
         init = header.init_address or header.real_load_address
         play = header.play_address or init
         if subtune is None:

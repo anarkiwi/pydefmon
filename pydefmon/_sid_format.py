@@ -33,9 +33,9 @@ non-relocated replay):
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
-from pysidtracker import CodePattern, SidImage, find_code_first
+from pysidtracker import CodePattern, SidImage, find_code_first, parse_prg
 from pysidtracker import registers as reg
 
 LOAD_ADDRESS = 0x1800
@@ -74,10 +74,8 @@ _SIG_PATTERN = CodePattern(_SIG_SPEC)
 # the CodePattern compiles, for corpus discovery / prefilter helpers.
 SIGNATURE: tuple = tuple(None if t == "??" else int(t, 16) for t in _SIG_SPEC.split())
 
-# The runtime data base sits a fixed distance above the signature site
-# (the play body at $1022 -> data base $1800 in the canonical, non-relocated
-# player: 0x1800 - 0x1022 == 0x7DE). The player relocates player+data
-# together, so this delta is invariant across relocations.
+# Signature deltas (canonical player base $1000, play body $1022, data base $1800).
+_SIGNATURE_FROM_PLAYER_BASE = 0x22
 _DATA_BASE_FROM_SIGNATURE = 0x7DE
 
 _FLAG_ALT = 0x80
@@ -98,6 +96,31 @@ def find_signature(mem, start: int = 0, end: int = 0x10000) -> int:
     """
     match = find_code_first(mem, _SIG_PATTERN, start=start, end=end)
     return match.addr if match is not None else -1
+
+
+def prg_replay(raw: bytes) -> Optional[Tuple[int, int]]:
+    """Detect a defMON pack-save export PRG and recover its player base.
+
+    Both the ``$1000`` raw export and the ``$0801`` executable (BASIC stub +
+    host boot ahead of the same replay) carry the player a fixed distance
+    below its signature, so the base follows from the signature site alone.
+
+    Returns:
+        ``(load, player_base)`` or ``None`` when ``raw`` carries no defMON
+        player with a consistent data base (e.g. a ``$1800`` workfile).
+    """
+    if raw[:4] in (b"PSID", b"RSID") or len(raw) < 4:
+        return None
+    load, body = parse_prg(raw)
+    match = find_code_first(body, _SIG_PATTERN, start=0, end=len(body))
+    if match is None:
+        return None
+    sig = match.addr
+    if sig < _SIGNATURE_FROM_PLAYER_BASE:
+        return None
+    if sig + _DATA_BASE_FROM_SIGNATURE >= len(body):
+        return None
+    return load, load + sig - _SIGNATURE_FROM_PLAYER_BASE
 
 
 def _walk_pattern(absrd, start: int):

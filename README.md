@@ -11,13 +11,15 @@ register writes, verified byte-exact against the
 [`sidtrace`](https://github.com/anarkiwi/sidtrace) `sidplayfp` oracle over real
 HVSC tunes.
 
-Reads `.sid` files (PSID/RSID containers) and bare `.prg` editor workfiles
-through the shared [`pysidtracker`](https://github.com/anarkiwi/pysidtracker)
-base, decoding both to the same `$1800..$7166` structural model. A `.prg` is
-the composer's editor form and a `.sid` the packer's canonical form — the same
-tune, not the same bytes — compare them with `DefmonSong.diff` (not a raw
-`snapshot ==`). The relocatable player is located by signature; container
-headers are not trusted; the player runs the replay embedded in a `.sid`.
+Reads `.sid` files (PSID/RSID containers), bare `.prg` editor workfiles, and
+defMON's own pack-save export PRGs (SHIFT+P: the `$1000` raw export and the
+`$0801` executable with its BASIC stub + host boot) through the shared
+[`pysidtracker`](https://github.com/anarkiwi/pysidtracker) base, decoding all
+of them to the same `$1800..$7166` structural model. A `.prg` workfile is the
+composer's editor form, the export PRGs and `.sid` the packer's canonical form
+— the same tune, not the same bytes — compare them with `DefmonSong.diff` (not
+a raw `snapshot ==`). The relocatable player is located by signature; container
+headers are not trusted; `DefmonPlayer` plays any of the three containers.
 
 ## Install
 

@@ -37,10 +37,15 @@ Region                        Size  Purpose
 ``$1B00..$1BFF``               256  V1 arranger (per-song-step pattern index)
 ``$1C00..$1CFF``               256  V2 arranger
 ``$1D00..$1DFF``               256  V3 arranger
-``$1E00..$1EFF``               256  sidTAB DL byte (hold / STop per row)
-``$1F00..$5EFF``             16384  128 pattern bodies (32 events × 4 bytes each)
-``$5F00..$7166``              4711  256 sidTAB rows (15 bytes each) + sidcall metadata
-============================  ====  ====================================================
+ ``$1E00..$1EFF``               256  sidTAB DL byte (hold / STop per row)
+ ``$1F00..$5EFF``             16384  128 pattern bodies (32 events × 4 bytes each)
+ ``$5F00..$6DFF``              3840  256 sidTAB rows (15 bytes each)
+ ``$6E00..$6EFF``               256  SID#2 voice-4 arranger (stereo)
+ ``$6F00..$6FFF``               256  SID#2 voice-5 arranger (stereo)
+ ``$7000..$70FF``               256  SID#2 voice-6 arranger (stereo)
+ ``$7100..$7166``                103  runtime-state page (gates, tempo, sub-frame
+                                    count, stereo flag, SID#2 base; editor state)
+ ============================  ====  ====================================================
 
 The arranger byte encoding: ``0`` means "silent voice on this song
 step"; ``1..127`` are pattern numbers; ``$FF`` is the jump command
@@ -53,8 +58,10 @@ Most user-facing edits go through the helper API (:meth:`set_step`,
 :meth:`set_pattern_events`, :meth:`clear_arranger`,
 :meth:`clear_dl`, :meth:`optimize`), but raw region access is
 available for power users (:attr:`pattern_bodies`,
-:attr:`sidtab_region`, :attr:`arranger_v1` / ``v2`` / ``v3``,
-:attr:`sidtab_dl`, :attr:`sidtab_jp`).
+:attr:`sidtab_region`, :attr:`arranger_v1` .. ``v6`` (``v4``/``v5``/``v6``
+are the SID#2 stereo voices), :attr:`sidtab_dl`, :attr:`sidtab_jp`,
+and the runtime-state page fields :attr:`cia2_timer`,
+:attr:`sub_frame_count`, :attr:`stereo_enable`, :attr:`sid2_base`).
 """
 
 from __future__ import annotations
@@ -84,6 +91,14 @@ STANDARD_SNAPSHOT_SIZE = STANDARD_SNAPSHOT_END - LOAD_ADDRESS  # 22887
 GATE_SONG_POSITION = 0x715E - LOAD_ADDRESS
 GATE_PAT_BASE = 0x715F - LOAD_ADDRESS
 GATE_PATTERN_MARKER = 0x7162 - LOAD_ADDRESS
+
+# Runtime-state page ($7100..$7166) per-tune playback fields, snapshot offsets.
+CIA2_TIMER_LO = 0x715A - LOAD_ADDRESS  # CIA2 Timer-A reload, lo (per-NMI tempo)
+CIA2_TIMER_HI = 0x715B - LOAD_ADDRESS  # CIA2 Timer-A reload, hi
+SUB_FRAME_COUNT = 0x715C - LOAD_ADDRESS  # NMIs per main tick (1/2/4/8)
+STEREO_ENABLE = 0x715D - LOAD_ADDRESS  # $00 mono / $01 stereo (2SID)
+SID2_BASE_LO = 0x7164 - LOAD_ADDRESS  # SID#2 register base, lo
+SID2_BASE_HI = 0x7165 - LOAD_ADDRESS  # SID#2 register base, hi
 
 # Prehistoric 2008 builds (56/60 blocks): raw worktune saves at $1700, no $D6C9 codec.
 PREHISTORIC_LOAD_ADDRESS = 0x1700
@@ -121,7 +136,11 @@ DIFF_REGIONS: tuple[tuple[str, int, int], ...] = (
     ("arranger_v3", 0x1D00, 0x100),
     ("sidtab_dl", 0x1E00, 0x100),
     ("patterns", 0x1F00, 0x4000),
-    ("sidtab", 0x5F00, STANDARD_SNAPSHOT_END - 0x5F00),
+    ("sidtab", 0x5F00, 0x6E00 - 0x5F00),
+    ("arranger_v4", 0x6E00, 0x100),
+    ("arranger_v5", 0x6F00, 0x100),
+    ("arranger_v6", 0x7000, 0x100),
+    ("runtime_state", 0x7100, STANDARD_SNAPSHOT_END - 0x7100),
 )
 
 
@@ -424,7 +443,10 @@ class DefmonSong:
         DL). Spans two unrelated regions glued together for legacy
         convenience; prefer :attr:`arranger_v1`, :attr:`arranger_v2`,
         :attr:`arranger_v3`, and :attr:`sidtab_dl` (or
-        :attr:`sidtab_jp`) for new code.
+        :attr:`sidtab_jp`) for new code. The SID#2 (stereo) arrangers
+        live separately at ``$6E00..$70FF`` (see :attr:`arranger_v4`,
+        :attr:`arranger_v5`, :attr:`arranger_v6`) and are out of this
+        view.
 
         Indexed by **song-step** Y for the arrangers:
 
@@ -507,19 +529,121 @@ class DefmonSong:
 
     @property
     def sidtab_region(self) -> memoryview:
-        """``$5F00..$7166``. Sidtab rows + sidcall metadata. Each row
-        is 15 bytes (``$0F`` stride); see ``sidtab_row()`` for
-        decoding. Sidcall ``N`` starts at row ``N`` and runs through
-        subsequent rows until a freeze or loop terminator -- see
-        ``sidcall_frames()``.
+        """``$5F00..$7166``. 256 sidTAB rows (15 bytes each,
+        ``$5F00..$6DFF``; see ``sidtab_row()``), then the SID#2 stereo
+        arrangers (:attr:`arranger_v4` / ``v5`` / ``v6`` at
+        ``$6E00``/``$6F00``/``$7000``), then the runtime-state page
+        (``$7100..$7166``: post-LOAD gates, tempo, sub-frame count,
+        stereo flag, SID#2 base — see
+        :attr:`cia2_timer` / :attr:`sub_frame_count` /
+        :attr:`stereo_enable` / :attr:`sid2_base`). Sidcall ``N``
+        starts at row ``N`` and runs through subsequent rows until a
+        freeze or loop terminator -- see ``sidcall_frames()``.
         """
         return self._region(0x5F00, 0x7167 - 0x5F00)
+
+    @property
+    def arranger_v4(self) -> memoryview:
+        """``$6E00..$6EFF`` -- SID#2 voice-4 (V3) per-song-step pattern
+        number; 0 = silent voice on this step. Indexed by song-step Y.
+        Read by the player only when stereo is enabled
+        (:attr:`stereo_enable`)."""
+        return self._region(0x6E00, 0x100)
+
+    @property
+    def arranger_v5(self) -> memoryview:
+        """``$6F00..$6FFF`` -- SID#2 voice-5 (V4) per-song-step pattern
+        number; 0 = silent voice on this step. Indexed by song-step Y.
+        Read by the player only when stereo is enabled
+        (:attr:`stereo_enable`)."""
+        return self._region(0x6F00, 0x100)
+
+    @property
+    def arranger_v6(self) -> memoryview:
+        """``$7000..$70FF`` -- SID#2 voice-6 (V5) per-song-step pattern
+        number; 0 = silent voice on this step. Indexed by song-step Y.
+        Read by the player only when stereo is enabled
+        (:attr:`stereo_enable`)."""
+        return self._region(0x7000, 0x100)
+
+    # ---- runtime-state page ($7100..$7166): per-tune playback fields ----
+
+    @property
+    def cia2_timer(self) -> int:
+        """``$715A``/``$715B`` -- the 16-bit CIA2 Timer-A reload interval;
+        the per-tune tempo (NMI period). Combined with
+        :attr:`sub_frame_count`, the main-tick rate is
+        ``cia2_timer × sub_frame_count`` cycles per player advance."""
+        lo = self.snapshot[CIA2_TIMER_LO]
+        hi = self.snapshot[CIA2_TIMER_HI]
+        return lo | (hi << 8)
+
+    @property
+    def sub_frame_count(self) -> int:
+        """``$715C`` -- NMIs per main player tick: 1, 2, 4, or 8."""
+        return self.snapshot[SUB_FRAME_COUNT]
+
+    @property
+    def stereo_enable(self) -> bool:
+        """``$715D`` -- stereo (2SID) mode flag. Off: the SID#2
+        arrangers are dead data and the player drives voices 1-3 only."""
+        return self.snapshot[STEREO_ENABLE] != 0
+
+    @property
+    def sid2_base(self) -> int:
+        """``$7164``/``$7165`` -- the SID#2 register base as a 16-bit word
+        (``lo | hi << 8``); the legal mappings are ``$D4xx``/``$D5xx``/
+        ``$DExx``/``$DFxx`` with the low byte a ``$20`` multiple."""
+        lo = self.snapshot[SID2_BASE_LO]
+        hi = self.snapshot[SID2_BASE_HI]
+        return lo | (hi << 8)
+
+    def _set16(self, lo_off: int, value: int) -> None:
+        self.snapshot[lo_off] = value & 0xFF
+        self.snapshot[lo_off + 1] = (value >> 8) & 0xFF
+
+    def set_cia2_timer(self, value: int) -> None:
+        """Set the per-tune tempo word at ``$715A``/``$715B``
+        (1 = one CIA tick, up to 65535; 0 underflows the timer)."""
+        if not 1 <= value <= 0xFFFF:
+            raise ValueError(f"CIA2 timer must be 1..65535, got {value}")
+        self._set16(CIA2_TIMER_LO, value)
+
+    def set_sub_frame_count(self, value: int) -> None:
+        """Set ``$715C`` (NMIs per main tick); must be 1, 2, 4, or 8."""
+        if value not in (1, 2, 4, 8):
+            raise ValueError(f"sub-frame count must be 1, 2, 4, or 8, got {value}")
+        self.snapshot[SUB_FRAME_COUNT] = value
+
+    def set_stereo(self, enable: bool) -> None:
+        """Set the stereo (2SID) flag at ``$715D``."""
+        self.snapshot[STEREO_ENABLE] = 1 if enable else 0
+
+    def set_sid2_base(self, word: int) -> None:
+        """Set the SID#2 register base at ``$7164``/``$7165``.
+
+        ``word`` is ``lo | hi << 8``; the legal mappings are
+        ``$D4xx``/``$D5xx``/``$DExx``/``$DFxx`` with the low byte one of
+        ``$00``/``$20``/``$40``/``$60``/``$80``/``$A0``/``$C0``/``$E0``.
+        """
+        hi = (word >> 8) & 0xFF
+        lo = word & 0xFF
+        if hi not in (0xD4, 0xD5, 0xDE, 0xDF):
+            raise ValueError(
+                f"SID#2 base hi must be one of $D4/$D5/$DE/$DF, got ${hi:02X}"
+            )
+        if lo & 0x1F != 0 or lo > 0xE0:
+            raise ValueError(
+                f"SID#2 base lo must be a $20 multiple of $00..$E0, got ${lo:02X}"
+            )
+        self._set16(SID2_BASE_LO, lo | (hi << 8))
 
     # ---- builders for from-scratch tune authoring ----
 
     def clear_arranger(self) -> None:
-        """Zero the per-step pattern-reference arrays at
-        ``$1B00..$1DFF`` (the V0/V1/V2 arranger arrays).
+        """Zero all six per-step pattern-reference arrays:
+        ``$1B00..$1DFF`` (SID#1 voices 1-3) and ``$6E00..$70FF``
+        (SID#2 voices 4-6, the stereo arrangers).
 
         Use this when you want to reset the arrangement without
         also wiping the sidTAB DL byte region — see :meth:`clear_dl`
@@ -527,7 +651,7 @@ class DefmonSong:
         order, and is provided for callers that want the legacy
         all-in-one wipe.
         """
-        for offset in (0x1B00, 0x1C00, 0x1D00):
+        for offset in (0x1B00, 0x1C00, 0x1D00, 0x6E00, 0x6F00, 0x7000):
             base = offset - LOAD_ADDRESS
             for i in range(0x100):
                 self.snapshot[base + i] = 0
@@ -546,8 +670,9 @@ class DefmonSong:
 
     def clear_song_table(self) -> None:
         """Wipe ``voice_pattern_refs`` to all zero — clears BOTH the
-        arranger arrays at ``$1B00..$1DFF`` AND the sidTAB DL byte
-        region at ``$1E00..$1EFF``.
+        arranger arrays (``$1B00..$1DFF`` and the SID#2 stereo
+        arrangers ``$6E00..$70FF``) AND the sidTAB DL byte region at
+        ``$1E00..$1EFF``.
 
         **Gotcha**: this wipes the DL bytes too, so it must run
         **before** any :meth:`set_dl` calls (and before populating
@@ -561,16 +686,37 @@ class DefmonSong:
         self.clear_arranger()
         self.clear_dl()
 
-    def set_step(self, y: int, *, v1: int = 0, v2: int = 0, v3: int = 0) -> None:
-        """Set song step ``y`` to play patterns ``v1`` / ``v2`` / ``v3``
-        on the three voices (use 0 for a silent voice). Pattern
+    def set_step(
+        self,
+        y: int,
+        *,
+        v1: int = 0,
+        v2: int = 0,
+        v3: int = 0,
+        v4: "int | None" = None,
+        v5: "int | None" = None,
+        v6: "int | None" = None,
+    ) -> None:
+        """Set song step ``y`` to play patterns on the six voices.
+
+        ``v1``/``v2``/``v3`` (SID#1 voices 1-3) default to 0 (silent
+        voice). ``v4``/``v5``/``v6`` (SID#2 voices 4-6, stereo) default
+        to ``None`` = leave those arranger bytes untouched, so editing
+        a mono step never clobbers stereo arranger data. Pattern
         indices must be 0-127. To create a jump entry, call
         ``set_jump`` instead.
         """
         if not 0 <= y <= 255:
             raise ValueError(f"song step must be 0..255, got {y}")
-        for name, val in (("v1", v1), ("v2", v2), ("v3", v3)):
-            if not 0 <= val <= 0x7F:
+        for name, val in (
+            ("v1", v1),
+            ("v2", v2),
+            ("v3", v3),
+            ("v4", v4),
+            ("v5", v5),
+            ("v6", v6),
+        ):
+            if val is not None and not 0 <= val <= 0x7F:
                 raise ValueError(f"{name} pattern index must be 0..127, got {val}")
         OFF_1B = 0x1B00 - LOAD_ADDRESS
         OFF_1C = 0x1C00 - LOAD_ADDRESS
@@ -578,15 +724,27 @@ class DefmonSong:
         self.snapshot[OFF_1B + y] = v1
         self.snapshot[OFF_1C + y] = v2
         self.snapshot[OFF_1D + y] = v3
+        for arr, val in (
+            (0x6E00, v4),
+            (0x6F00, v5),
+            (0x7000, v6),
+        ):
+            if val is not None:
+                self.snapshot[arr - LOAD_ADDRESS + y] = val
 
-    def set_jump(self, y: int, *, target: int, count: int = 0) -> None:
+    def set_jump(
+        self, y: int, *, target: int, count: int = 0, stereo: bool = False
+    ) -> None:
         """Mark song step ``y`` as a jump command. The song will jump
         to step ``target`` ``count`` times before falling through.
         ``count == 0`` is unconditional (infinite loop).
 
-        On disk: ``$1B00,y = $FF`` (the arranger's jump marker
-        recognised by ``_arranger_advance`` in ``defmon_player``),
-        with ``$1C00,y = target`` and ``$1D00,y = count``.
+        On disk: ``$1B00,y = $FF`` (the arranger's jump marker),
+        with ``$1C00,y = target`` and ``$1D00,y = count``. Each chip's
+        arranger walker is independent, so a stereo song must carry the
+        same jump row in the SID#2 arrangers too; pass
+        ``stereo=True`` to mark that one as well (``$6E00,y = $FF``,
+        ``$6F00,y = target``, ``$7000,y = count``).
         """
         if not 0 <= y <= 255:
             raise ValueError(f"song step must be 0..255, got {y}")
@@ -600,6 +758,9 @@ class DefmonSong:
         self.snapshot[OFF_1B + y] = 0xFF
         self.snapshot[OFF_1C + y] = target
         self.snapshot[OFF_1D + y] = count
+        if stereo:
+            for arr, val in ((0x6E00, 0xFF), (0x6F00, target), (0x7000, count)):
+                self.snapshot[arr - LOAD_ADDRESS + y] = val
 
     # ---- sidTAB row metadata (JP / DL) ----
 
@@ -743,10 +904,14 @@ class DefmonSong:
           identical are merged. Arranger entries
           (``$1B00`` / ``$1C00`` / ``$1D00,y``) referencing a duplicate
           pattern are rewritten to the canonical (lowest-indexed) copy.
-          Pattern 0 is reserved as the "silent voice on this step"
-          target and is never used as a remap destination; arranger
-          rows whose V0 entry is ``$FF`` (jump command) are skipped
-          entirely because their V1/V2 bytes are target/count rather
+          When stereo is enabled (:attr:`stereo_enable`), the SID#2
+          arrangers (``$6E00`` / ``$6F00`` / ``$7000,y``) are rewritten
+          the same way — mirroring defMON's own packer, which only
+          touches them when the stereo flag is set. Pattern 0 is
+          reserved as the "silent voice on this step" target and is
+          never used as a remap destination; a row whose V0/V3 entry
+          has bit 7 set is a jump command and is skipped entirely
+          because its V1/V2 (or V4/V5) bytes are target/count rather
           than pattern indices.
 
         Idempotent — running twice produces the same song. Returns
@@ -800,21 +965,36 @@ class DefmonSong:
                 canonical[body] = pat_idx
         if not remap:
             return
-        OFF_1B = 0x1B00 - LOAD_ADDRESS
-        OFF_1C = 0x1C00 - LOAD_ADDRESS
-        OFF_1D = 0x1D00 - LOAD_ADDRESS
+        # defMON's own packer rewrites the SID#2 arrangers only while stereo is enabled; mirror that gate
+        groups = [
+            (
+                (0x1B00 - LOAD_ADDRESS, 0x1C00 - LOAD_ADDRESS, 0x1D00 - LOAD_ADDRESS),
+                0x1B00 - LOAD_ADDRESS,
+            ),
+        ]
+        if self.snapshot[STEREO_ENABLE]:
+            groups.append(
+                (
+                    (
+                        0x6E00 - LOAD_ADDRESS,
+                        0x6F00 - LOAD_ADDRESS,
+                        0x7000 - LOAD_ADDRESS,
+                    ),
+                    0x6E00 - LOAD_ADDRESS,
+                )
+            )
         for idx in range(256):
-            if self.snapshot[OFF_1B + idx] == 0xFF:
-                # jump-command row: V1=target, V2=count, neither a
-                # pattern index.
-                continue
-            for arr_base in (OFF_1B, OFF_1C, OFF_1D):
-                val = self.snapshot[arr_base + idx]
-                if val == 0:
-                    continue  # silent voice on this step
-                pat_num = val & 0x7F
-                if pat_num in remap:
-                    self.snapshot[arr_base + idx] = (val & 0x80) | remap[pat_num]
+            for triple, jump_row in groups:
+                if self.snapshot[jump_row + idx] & 0x80:
+                    # jump row: V1/V2 (or V4/V5) are target/count, not pattern indices
+                    continue
+                for arr_base in triple:
+                    val = self.snapshot[arr_base + idx]
+                    if val == 0:
+                        continue  # silent voice on this step
+                    pat_num = val & 0x7F
+                    if pat_num in remap:
+                        self.snapshot[arr_base + idx] = (val & 0x80) | remap[pat_num]
 
     def sidtab_row(self, index: int) -> "SidtabRow":
         """Decode the 15-byte sidtab row at index ``0 <= index < 256``.

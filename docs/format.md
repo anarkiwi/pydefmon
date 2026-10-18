@@ -204,7 +204,11 @@ After LOAD + defMON's gated post-LOAD fixup passes (`$CF42` / `$D004` /
 | `$1D00..$1DFF`       | 256 B   | V3 arranger                                         | `arranger_v3`          |
 | `$1E00..$1EFF`       | 256 B   | sidTAB DL byte (hold / STop)                        | `sidtab_dl`            |
 | `$1F00..$5EFF`       | 16384 B | 128 pattern bodies × 128 B each                     | `pattern_bodies`, `pattern(n)` |
-| `$5F00..$7166`       | 4711 B  | 256 sidTAB rows × 15 B each + sidcall metadata      | `sidtab_region`, `sidtab_row(y)` |
+| `$5F00..$6DFF`       | 3840 B  | 256 sidTAB rows × 15 B each                         | `sidtab_region`, `sidtab_row(y)` |
+| `$6E00..$6EFF`       | 256 B   | SID#2 voice-4 arranger (stereo)                     | `arranger_v4`          |
+| `$6F00..$6FFF`       | 256 B   | SID#2 voice-5 arranger (stereo)                     | `arranger_v5`          |
+| `$7000..$70FF`       | 256 B   | SID#2 voice-6 arranger (stereo)                     | `arranger_v6`          |
+| `$7100..$7166`       | 103 B   | Runtime-state page (gates, tempo, stereo, SID#2 base, editor state) | `cia2_timer`, `sub_frame_count`, `stereo_enable`, `sid2_base` |
 
 Bytes past `$7166` are editor state and not preserved.
 
@@ -248,7 +252,7 @@ of `$1F00 + X*$80` for `X` in `0..127` (only when gate `$715F` is set — older
 edits' saves leave it zero after LOAD). `DefmonSong.unpacked_snapshot()` returns
 a copy with this region materialised, matching what the player sees at runtime.
 
-#### Voice arrangers (`$1B00`, `$1C00`, `$1D00`)
+#### Voice arrangers (`$1B00`, `$1C00`, `$1D00` — SID#1)
 
 Per song-step `Y`, the byte at `$1B00,Y` / `$1C00,Y` / `$1D00,Y` is the pattern
 number that voice V1/V2/V3 plays on this step. Encoding:
@@ -256,11 +260,65 @@ number that voice V1/V2/V3 plays on this step. Encoding:
 * `$00` — silent voice on this step.
 * `$01..$7F` — pattern number (high bit, if set, is an editor-only flag masked
   off by the player).
-* `$FF` (V1 only) — jump command. `$1C00,Y` becomes the target song step;
+* Any value with bit 7 set in the V0 slot (`$1B00,Y`) — jump command
+  (the `$FF` form defMON writes). `$1C00,Y` becomes the target song step;
   `$1D00,Y` is the repeat count (`0` = unconditional infinite loop).
 
 Edit via `DefmonSong.set_step(y, v1=..., v2=..., v3=...)` for pattern-playing
 rows and `DefmonSong.set_jump(y, target=..., count=...)` for jumps.
+
+#### SID#2 stereo arrangers (`$6E00`, `$6F00`, `$7000`)
+
+With stereo enabled (see below), voices 4-6 live on a second SID chip and
+carry their own arranger pages, with the identical encoding per song-step `Y`:
+
+* `$6E00,Y` / `$6F00,Y` / `$7000,Y` — V4/V5/V6 pattern numbers.
+* A bit-7-set V4 slot (`$6E00,Y`) is that chip's jump command: `$6F00,Y`
+  is the target and `$7000,Y` the repeat count.
+
+Each chip's arranger walker is independent, so a stereo song that has a jump
+row needs it marked in *both* pages — `DefmonSong.set_jump(y, target, count,
+stereo=True)` writes both, and `DefmonSong.set_step(y, ..., v4=..., v5=...,
+v6=...)` sets the SID#2 voices (those arguments are opt-in so editing a mono
+row never clobbers stereo arranger data). `clear_arranger()` wipes all six
+pages. Voices 4-6 share the pattern bank with 1-3; the SID#2 pages are read
+only while `stereo_enable` is set, and defMON's own packer rewrites/references
+them only in stereo tunes too — `DefmonSong.optimize()` mirrors that gate, so
+it never repoints SID#2 references (and never touches a page's jump-row
+target/count bytes) on a mono song. Stereo config has been saved in
+worktunes since V20140615 ("Stereo SID Returns"); defMON's V20201008 packer
+is the first observed to append the three SID#2 arranger pages. No tune in the
+defMON release ships with `stereo_enable` set — `.AUTOMATAS2017` does carry
+SID#2 arranger data (V4: patterns `1`×8 then a `$FF` jump back to row 0) with
+the flag off, i.e. the flag alone decides whether that data is live.
+
+#### Runtime-state page (`$7100..$7166`)
+
+Per-tune playback fields the player reads at runtime (defMON keeps them in
+the editor's RAM; a worktune save stores them in the decoded image):
+
+| Address   | Field            | Meaning                                                                 | Accessor                                  |
+|-----------|------------------|-------------------------------------------------------------------------|-------------------------------------------|
+| `$715A`   | `cia2_timer_lo`  | CIA2 Timer-A reload interval, low byte (per-NMI period)                 | part of `cia2_timer`                      |
+| `$715B`   | `cia2_timer_hi`  | CIA2 Timer-A reload interval, high byte                                  | part of `cia2_timer`                      |
+| `$715C`   | `sub_frame_count`| NMIs per main player tick: `1`, `2`, `4`, or `8`                          | `sub_frame_count` / `set_sub_frame_count` |
+| `$715D`   | `stereo_enable`  | `$00` mono / `$01` stereo (2SID) mode enabled                            | `stereo_enable` / `set_stereo`            |
+| `$7164`   | `sid2_base_lo`   | SID#2 register base, low byte (`$20` multiples of `$00..$E0`)           | part of `sid2_base`                       |
+| `$7165`   | `sid2_base_hi`   | SID#2 register base, high byte (`$D4/$D5/$DE/$DF`)                       | part of `sid2_base`                       |
+
+The effective main-tick interval is `cia2_timer × sub_frame_count` CPU
+cycles. The SID#2 base selects where the second chip's 24 registers are
+mapped; the editor cycles it with `CTRL+SHIFT+UP` (hi byte: `$D4 → $D5 →
+$DE → $DF`) and `CTRL+C+UP` (lo byte in `$20` steps). The post-LOAD
+pass gates sit on the same page (`$715E`, `$715F`, `$7162`, above). All
+shipped release worktunes carry live tempo values (e.g. `.DANSA IN` =
+`$4CC7` at ×1, `.AUTOMATAS2017` = `$0998` at ×8) with the stereo flag off;
+HVSC carries 2SID tunes (e.g. `MUSICIANS/F/F7sus4/Timewarp_Spheres_2SID.sid`,
+second SID mapped at `$D5xx`).
+
+defMON stores a *sync delay* ("saved with your tune", since V20141108)
+somewhere in this page; its byte offset is not identified, so it is
+carried opaquely inside the snapshot rather than given an accessor.
 
 #### sidTAB DL byte (`$1E00..$1EFF`)
 
@@ -373,7 +431,11 @@ tune's own replay on a jennings 6502, so all of it happens as real machine code.
 These notes document what defMON's replay does, for reference. The play cadence
 is a tune-specific CIA-2 Timer-A NMI with reload `(($715A | $715B << 8)) * $715C`
 cycles (`$715A/$715B` = per-NMI cycle count, `$715C` = sub-frame ratio), firing
-`sub_frame_count` NMIs per main player tick.
+`sub_frame_count` NMIs per main player tick. The worktune carries those fields
+in the runtime-state page (exposed as `DefmonSong.cia2_timer` /
+`DefmonSong.sub_frame_count` / `DefmonSong.stereo_enable` /
+`DefmonSong.sid2_base`; see the [runtime-state page](#runtime-state-page-71007166)
+section).
 
 * **All NMIs** run the SID-write band (24 writes), the global `$D417`/`$D418`/
   `$D416` writes, the ACID cutoff slide, the sidTAB cascade arms for both layers

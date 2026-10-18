@@ -87,8 +87,10 @@ PYTHONPATH=scripts python -m pysidtracker.survey diff $HVSC .hvsc-survey/tunes.c
 
 - [`DefmonSong`](../pydefmon/defmon.py) — the 22887-byte runtime RAM image at
   `$1800..$7166`, parsed from a `.prg` file or `.sid` replay. Region accessors
-  for arrangers, sidTAB rows + DL bytes, pattern bodies; structured edit API
-  (`set_step`, `set_jump`, `set_dl`, `set_jp`, `set_pattern_events`).
+  for arrangers (including the SID#2 stereo pages `arranger_v4`/`v5`/`v6`),
+  sidTAB rows + DL bytes, pattern bodies, and the runtime-state page fields
+  (`cia2_timer`, `sub_frame_count`, `stereo_enable`, `sid2_base`); structured
+  edit API (`set_step`, `set_jump`, `set_dl`, `set_jp`, `set_pattern_events`).
   Round-trips through the `$D6C9` LOAD codec. A `.prg` and a `.sid` of the same
   tune are the same music in two forms — `form` reports `"editor"` vs
   `"packed"` and `diff(other)` compares them region-wise (rather than a raw

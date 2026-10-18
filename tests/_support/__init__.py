@@ -1,9 +1,14 @@
 """Test-only helpers. Not part of the public package."""
 
 import hashlib
+import io
 import os
 import struct
 import tempfile
+import time
+import urllib.error
+import urllib.request
+import zipfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -246,3 +251,80 @@ def editor_image_bytes() -> Optional[bytes]:
         _atomic_write(dst, flat)
         return flat
     return None
+
+
+# Prehistoric 2008 defMON builds (issue #39), author-distributed oldversions.zip: fetched + cached on demand, never committed.
+PREHISTORIC_ZIP_URL = (
+    "https://defmon.vandervecken.com/lib/exe/fetch.php?media=download:oldversions.zip"
+)
+PREHISTORIC_ZIP_SHA256 = (
+    "830cc74b31efceb07b61c0b764e3d6b2798993175846b81176498b50b449c09a"
+)
+PREHISTORIC_56_BLOCKS = "defmon-56blocks.prg"
+PREHISTORIC_56_BLOCKS_SHA256 = (
+    "82cfa197e89520363002c61ba415863f5b6ef0782b8446ae907f013c63ed7a7e"
+)
+# 64K RAM image decrunched from the PRG via native_decrunch; pins reproducibility.
+PREHISTORIC_56_BLOCKS_MEM_SHA256 = (
+    "4504fbc59a6bc1462fbd834f0a8c536e8c60ee3df2752a52176ad88bc4744a24"
+)
+
+
+def _fetch_bytes(url: str, retries: int = 4) -> bytes:
+    """Download ``url`` with a user-agent and retry/backoff; raises TuneFetchError."""
+    req = urllib.request.Request(url, headers={"User-Agent": "pydefmon/tests"})
+    last_err: Optional[Exception] = None
+    for attempt in range(retries):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310
+                return resp.read()
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                raise TuneFetchError(f"{url}: not found") from exc
+            last_err = exc
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_err = exc
+        if attempt + 1 < retries:
+            time.sleep(min(2**attempt, 5))
+    raise TuneFetchError(f"{url}: unreachable after {retries} attempts ({last_err})")
+
+
+def prehistoric_56block_image() -> Optional[bytes]:
+    """64K decrunched RAM image of the 2008 56-block defMON build, or ``None``.
+
+    Zip / PRG / decrunch sha256-pinned (see :data:`PREHISTORIC_*`) from the
+    author's ``oldversions.zip``; cached at
+    ``FIXTURES_DIR/defmon-56blocks.dcr.bin``. Offline runners get ``None``.
+    """
+    dst = FIXTURES_DIR / "defmon-56blocks.dcr.bin"
+    if dst.exists():
+        data = dst.read_bytes()
+        if hashlib.sha256(data).hexdigest() == PREHISTORIC_56_BLOCKS_MEM_SHA256:
+            return data
+    try:
+        blob = _fetch_bytes(PREHISTORIC_ZIP_URL)
+    except TuneFetchError:
+        return None
+    if hashlib.sha256(blob).hexdigest() != PREHISTORIC_ZIP_SHA256:
+        raise ValueError("oldversions.zip sha256 mismatch (provenance)")
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        prg = next(
+            (
+                zf.read(n)
+                for n in zf.namelist()
+                if n.split("/")[-1] == PREHISTORIC_56_BLOCKS
+            ),
+            None,
+        )
+    if prg is None or hashlib.sha256(prg).hexdigest() != PREHISTORIC_56_BLOCKS_SHA256:
+        raise ValueError(f"{PREHISTORIC_56_BLOCKS} sha256 mismatch (provenance)")
+    from pysidtracker import native_decrunch
+
+    image = native_decrunch(prg)
+    if image is None or len(image.mem) != 0x10000:
+        raise ValueError(f"{PREHISTORIC_56_BLOCKS} did not decrunch to 64K")
+    flat = bytes(image.mem)
+    if hashlib.sha256(flat).hexdigest() != PREHISTORIC_56_BLOCKS_MEM_SHA256:
+        raise ValueError("decrunched 56-block image sha256 mismatch")
+    _atomic_write(dst, flat)
+    return flat

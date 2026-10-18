@@ -38,7 +38,8 @@ defMON's worktune/replay encoding changed across builds (per the
 [defMON changelog](https://defmon.vandervecken.com/doku.php?id=download:download)):
 
 * the 2008 builds save raw `$1700` worktunes and ship the compact-runtime
-  replay driver (the Goto80 tunes in HVSC);
+  replay driver (the Goto80 tunes in HVSC) — see
+  [Prehistoric 2008 builds](#prehistoric-2008-builds-raw-1700-worktunes);
 * V20140615 added the stereo config;
 * V20141108 added the sync delay;
 * V20171024 added the post-LOAD `$CFB8` pattern-marker pass;
@@ -158,6 +159,32 @@ canonical reconstruction. `tests/test_hvsc_sid_corpus.py` asserts the whole
 corpus recognises and decodes soundly, and `tests/test_oracle_hvsc.py`
 (`goto80_rentacop`, `goto80_ponky`, `goto80_reloaded_*`) verifies the Goto80
 reconstruction frame-exact against the `sidtrace` `sidplayfp` oracle.
+
+### Prehistoric 2008 builds (raw `$1700` worktunes)
+
+The 2008 builds predate the `$D6C9` worktune codec: their editor worktunes are
+plain raw PRGs loaded at `$1700`, not the `$1800` RLE body this document
+models, so their data layout relative to `$1700` is binary-derived only — no
+worktune saved by these builds survives in the wild, and the region map is
+unverified. Status per build (from disassembly of the decrunched editors):
+
+| Build | worktune save/LOAD |
+|-------|--------------------|
+| 56 blocks (`oldversions.zip`) | raw, base `$1700`: LOAD at `$7200..$720B` (secondary lo `$00` / hi `$17`, `JSR $FFD5`), SAVE at `$7238..$724B` (hi `$17` latched, file/drive via the `$7804`/`$7805` pointer vars, `JSR $FFD8`); no RLE codec in the path |
+| 60 blocks (Feb/Apr 08) | raw; base via runtime pointer vars `$7727..$772A` (defaulting to `$1700`); layout unverified |
+| 72 blocks (Oct 08) | `$1800` + RLE (encoder `$CC54`, decoder `$CC85`) — the modern family; worktunes saved by it decode through the normal path (its zeroed `$1A00` pattern table is the post-LOAD-gate case) |
+| 2013 Genesis Project crack | `$1800` + RLE (decoder `$B2F4`, same `$715E`/`$715F`/`$7162` gates) — decoder family matches |
+
+`pydefmon` detects the raw `$1700` container by its PRG load address
+(`pydefmon.PREHISTORIC_LOAD_ADDRESS`) and raises the specific
+`DefmonParseError` message in `pydefmon.PREHISTORIC_WORKTUNE_ERROR`
+("prehistoric 2008 defMON worktune … not supported") instead of the generic
+load-address error. The `$1700` base is pinned against the decrunched 56-block
+build's KERNAL `LOAD`/`SAVE` calls in
+[`tests/test_prehistoric_worktunes.py`](../tests/test_prehistoric_worktunes.py),
+which fetches the author-distributed `oldversions.zip` with zip / PRG /
+decrunch sha256 pins (and skips offline). Full support would require a
+surviving worktune sample to verify the 56/60-block region map against.
 
 ## Data model
 

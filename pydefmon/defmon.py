@@ -85,6 +85,14 @@ GATE_SONG_POSITION = 0x715E - LOAD_ADDRESS
 GATE_PAT_BASE = 0x715F - LOAD_ADDRESS
 GATE_PATTERN_MARKER = 0x7162 - LOAD_ADDRESS
 
+# Prehistoric 2008 builds (56/60 blocks): raw worktune saves at $1700, no $D6C9 codec.
+PREHISTORIC_LOAD_ADDRESS = 0x1700
+PREHISTORIC_WORKTUNE_ERROR = (
+    "prehistoric 2008 defMON worktune (raw $1700 save from a 2008 build, "
+    "no $D6C9 codec) is not supported; pydefmon only parses $1800 RLE "
+    "worktunes and PSID/RSID replays"
+)
+
 
 @dataclass(frozen=True)
 class RegionDiff:
@@ -214,8 +222,9 @@ class DefmonSong:
 
         Raises:
             DefmonParseError: if ``raw`` matches none of the containers, a
-            replay has no defMON player signature, or its data layout cannot
-            be mapped to the editor layout.
+            replay has no defMON player signature, a prehistoric 2008 raw
+            ``$1700`` worktune is presented, or the replay's data layout
+            cannot be mapped to the editor layout.
         """
         if raw[:4] in (b"PSID", b"RSID"):
             return cls._from_replay(SidImage.from_bytes(raw), bytes(raw))
@@ -226,6 +235,8 @@ class DefmonSong:
             return cls._from_worktune(raw)
         if _sid_format.prg_replay(raw) is not None:
             return cls._from_replay(SidImage.from_prg(raw), bytes(raw))
+        if load_addr == PREHISTORIC_LOAD_ADDRESS:
+            raise DefmonParseError(PREHISTORIC_WORKTUNE_ERROR)
         raise DefmonParseError(
             f"unexpected load address ${load_addr:04X}: not a ${LOAD_ADDRESS:04X} "
             f"editor workfile and no defMON replay player found"

@@ -64,6 +64,39 @@ class TestDefmonSongRoundTrip(unittest.TestCase):
         self.assertEqual(bytes(self.song.pattern_pointer_table), b"\x00" * 0x100)
 
 
+class TestSaveByteIdentity(unittest.TestCase):
+    """``to_bytes`` reproduces defMON's SAVE byte-for-byte for the worktunes
+    saved with the V20201008 encoder, and preserves a partial decode range
+    (bytes the file never wrote, e.g. ``sid2_base``, keep the editor's
+    power-on values instead of being overwritten with ``00``)."""
+
+    BYTE_IDENTITY = [
+        "automatas2017.prg",
+        "dansa_in.prg",
+        "f7sus4_ngc1277.prg",
+        "mondaynight2017.prg",
+    ]
+
+    def _read(self, name: str) -> bytes:
+        try:
+            return fixture_path(name).read_bytes()
+        except FileNotFoundError as e:
+            self.skipTest(str(e))
+            return b""  # unreachable
+
+    def test_save_byte_identical(self):
+        raw = {name: self._read(name) for name in self.BYTE_IDENTITY}
+        for name in self.BYTE_IDENTITY:
+            with self.subTest(file=name):
+                self.assertEqual(DefmonSong.from_bytes(raw[name]).to_bytes(), raw[name])
+
+    def test_partial_range_preserved(self):
+        raw = self._read("hive_machines.prg")
+        song = DefmonSong.from_bytes(raw)
+        self.assertEqual(song.decode_top, 0x7163)
+        self.assertEqual(DefmonSong.from_bytes(song.to_bytes()).decode_top, 0x7163)
+
+
 class TestParseErrors(unittest.TestCase):
     def test_short_file(self):
         with self.assertRaises(DefmonError):

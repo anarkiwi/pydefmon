@@ -71,7 +71,7 @@ from pydefmon._load_format import (
     CodecError,
     LOAD_ADDR,
     decode_load_stream,
-    encode_ram_block,
+    encode_worktune,
 )
 from pydefmon._sid_format import depack_replay, find_signature
 from pydefmon._goto80_format import decode_replay as decode_goto80_replay
@@ -186,6 +186,9 @@ class DefmonSong:
         buf = bytearray(STANDARD_SNAPSHOT_SIZE)
         buf[: len(snapshot)] = snapshot
         self.snapshot: bytearray = buf
+        self.decode_top: int = (
+            STANDARD_SNAPSHOT_END - 1
+        )  # highest addr; from_bytes narrows this to the file's decoded top
         # Original container bytes this song was parsed from (a PSID/RSID
         # replay, or a ``.prg`` workfile). Empty for from-scratch authoring.
         # A replay carries the player, so its play-routine cadence can be
@@ -235,6 +238,9 @@ class DefmonSong:
         for addr, val in writes.items():
             if LOAD_ADDRESS <= addr < LOAD_ADDRESS + STANDARD_SNAPSHOT_SIZE:
                 song.snapshot[addr - LOAD_ADDRESS] = val
+        song.decode_top = min(
+            max(dest_start, LOAD_ADDRESS), LOAD_ADDRESS + STANDARD_SNAPSHOT_SIZE - 1
+        )
         song.image_bytes = bytes(raw)
         return song
 
@@ -283,25 +289,29 @@ class DefmonSong:
     # ---- serialization ----
 
     def to_bytes(self) -> bytes:
-        """Serialize a complete PRG (load address + body) via the
-        $D6C9 LOAD-time encoder. When LOADed, writes ``self.snapshot``
-        into RAM at ``$1800..$7166``. Zero ``$1800,X`` on active-linear
-        rows and zero ``$1A00..$1AFF`` before encoding; ``$CF42`` and
-        ``$D004`` rewrite both regions at LOAD time.
+        """Serialize a complete PRG (load address + body) via defMON's SAVE
+        encoder (the faithful ``$D626`` walk). When LOADed, writes the song
+        into RAM at ``$1800..decode_top``. Applies the save-prep passes —
+        ``$11`` position markers and zeroed pattern-pointer table — over the
+        encode range; ``$CF42``/``$D004`` rebuild both regions at LOAD time.
+        An unmodified load round-trips byte-identical to the original file.
         """
         snap = bytearray(self.snapshot)
-        OFF_1800 = 0x1800 - LOAD_ADDRESS
-        OFF_1900 = 0x1900 - LOAD_ADDRESS
-        OFF_1A00 = 0x1A00 - LOAD_ADDRESS
+        off_lo = 0x1800 - LOAD_ADDRESS  # song_position_lo
+        off_hi = 0x1900 - LOAD_ADDRESS  # song_position_hi
+        off_pat = 0x1A00 - LOAD_ADDRESS  # pat_base_lo/hi
+        top = self.decode_top
         for x in range(256):
-            if snap[OFF_1900 + x] != 0:
-                snap[OFF_1800 + x] = 0
+            if snap[off_hi + x] != 0:
+                snap[off_lo + x] = 0x11
+                snap[off_hi + x] = 0x11
         for x in range(256):
-            snap[OFF_1A00 + x] = 0
+            snap[off_pat + x] = 0
+        src_len = top - LOAD_ADDRESS + 1
         try:
-            return encode_ram_block(bytes(snap), base_addr=LOAD_ADDRESS)
+            return encode_worktune(bytes(snap[:src_len]), top)
         except CodecError as e:
-            raise DefmonError(f"LOAD-encode failed: {e}") from e
+            raise DefmonError(f"SAVE-encode failed: {e}") from e
 
     def to_file(self, path: str) -> None:
         with open(path, "wb") as f:

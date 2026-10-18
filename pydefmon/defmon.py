@@ -63,8 +63,10 @@ from dataclasses import dataclass
 from typing import Any
 
 from pysidtracker import BaseSidParser, SidError, SidImage, SidParseError, parse_prg
+from pysidtracker.header import write_psid
 from pysidtracker.registers import PAL_CLOCK_HZ
 
+from pydefmon import _packer
 from pydefmon._load_format import (
     CodecError,
     LOAD_ADDR,
@@ -304,6 +306,32 @@ class DefmonSong:
     def to_file(self, path: str) -> None:
         with open(path, "wb") as f:
             f.write(self.to_bytes())
+
+    def to_replay(self, editor_image: bytes, *, raw: bool = False) -> bytes:
+        """Pack this worktune into a playable ``$1000`` replay.
+
+        Runs defMON's own SAVE pipeline (``pydefmon._packer``) on a
+        user-supplied 65536-byte decrunched editor RAM image; defaults
+        to PSID bytes, ``raw=True`` returns the packed ``.prg``.
+        """
+        if self.form != "editor":
+            raise DefmonError(
+                "to_replay packs a .prg worktune; this song already "
+                "came from a PSID/RSID replay"
+            )
+
+        image, _end = _packer.pack(editor_image, self.image_bytes)
+        if raw:
+            return _packer.to_prg(image)
+
+        return write_psid(
+            load=_packer.INIT_ADDRESS,
+            init=_packer.INIT_ADDRESS,
+            play=_packer.PLAY_ADDRESS,
+            image=image,
+            name="defMON worktune",
+            flags=0x20,  # 8580 chip, as defMON's own releases name it
+        )
 
     # ---- convenience properties ----
 

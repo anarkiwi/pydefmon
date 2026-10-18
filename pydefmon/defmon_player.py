@@ -24,13 +24,27 @@ from pysidtracker import EmuPlayer, SidImage
 from pysidtracker import registers as reg
 from pysidtracker.cadence import playroutine_cadence
 
-from pydefmon.defmon import DefmonError
+from pydefmon.defmon import DefmonError, DefmonSong
 
-PlayerSource = Union[bytes, bytearray, str, Path, SidImage]
+PlayerSource = Union[bytes, bytearray, str, Path, SidImage, DefmonSong]
 
 
 def _as_image(source: PlayerSource) -> SidImage:
-    """Resolve a player source (``SidImage`` / bytes / path) to a ``SidImage``."""
+    """Resolve a source (path/bytes/SidImage/DefmonSong) to a ``SidImage``.
+
+    A packed-form :class:`DefmonSong` resolves to the replay it parsed
+    from; an editor-form one (``.prg`` worktune) carries no player and
+    must be packed first via :meth:`DefmonSong.to_replay`.
+    """
+    if isinstance(source, DefmonSong):
+        if source.form == "packed" and source.image_bytes:
+            return SidImage.from_bytes(source.image_bytes)
+        raise DefmonError(
+            "DefmonPlayer needs a PSID/RSID replay with an init routine; "
+            "a bare .prg workfile carries no player -- pack it with "
+            "DefmonSong.to_replay(editor_image) or read its model with "
+            "DefmonSong"
+        )
     if isinstance(source, SidImage):
         return source
     if isinstance(source, (bytes, bytearray)):
@@ -41,7 +55,8 @@ def _as_image(source: PlayerSource) -> SidImage:
 class DefmonPlayer(EmuPlayer):
     """Per-frame SID register player for a defMON PSID/RSID replay.
 
-    Construct from replay bytes, a path, or a :class:`~pysidtracker.SidImage`;
+    Construct from replay bytes, a path, a :class:`~pysidtracker.SidImage`,
+    or a packed-form :class:`~pydefmon.DefmonSong`;
     the header's ``startSong`` selects the subtune unless ``subtune`` overrides
     it. Play calls run at the tune's play-routine cadence and osc3/env3 reads
     come from the SID model the header names. Memory starts as sidplayfp's

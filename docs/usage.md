@@ -21,11 +21,14 @@ song.to_file("out.prg")
 
 ## Render per-frame SID writes
 
-`DefmonPlayer` runs the replay embedded in a `.sid` (a `.prg` editor workfile
-carries no player). Construct it from bytes, a path, or a `SidImage`.
+`DefmonPlayer` runs the replay embedded in a `.sid` (or a packed-form
+`DefmonSong`). A `.prg` editor worktune carries no player: pack it first
+with `DefmonSong.to_replay(editor_image)` — defMON's own SAVE pipeline
+run on a decrunched editor image — then play the PSID (or use
+`raw=True` for the packed `.prg`).
 
 ```python
-from pydefmon import DefmonPlayer
+from pydefmon import DefmonPlayer, DefmonSong
 
 player = DefmonPlayer("tune.sid")
 for _ in range(600):
@@ -35,6 +38,11 @@ for _ in range(600):
 
 # Or a whole grid at once (nframes x 25 registers, forward-filled).
 grid = DefmonPlayer("tune.sid").render_grid(250)
+
+# A .prg worktune, once packed with a user-supplied decrunched editor image.
+song = DefmonSong.from_file("tune.prg")
+psid = song.to_replay(editor_image)        # playable PSID bytes
+prg = song.to_replay(editor_image, raw=True)
 ```
 
 The player derives from `pysidtracker.MemPlayer`, so `play_frame`,

@@ -808,12 +808,12 @@ class DefmonSong:
         return out
 
     def unpacked_snapshot(self) -> bytearray:
-        """Return a copy of the snapshot with runtime pointers
-        reconstructed: ``$1800,X``/``$1900,X`` filled with the active
-        per-step pointer ``$5F00 + X*$0F`` (where defMON's saver left
-        ``$11`` markers), and ``$1A00,X``/``$1A80,X`` filled with the
-        low/high of ``$1F00 + X*$80``. Models the post-LOAD state
-        after defMON's $CF42 + $D004 secondary passes have run."""
+        """Return the snapshot in post-LOAD form, with defMON's three gated passes.
+
+        $CF42 rewrites active ($1900,X != 0) rows to ``$5F00 + X*$0F``
+        pointers; $D004 fills ``$1A00,X``/``$1A80,X`` with ``$1F00 + X*$80``;
+        $CFB8 sets bit 7 of every pattern's step-31 byte (offset ``$7C``).
+        """
         out = bytearray(self.snapshot)
         OFF_1800 = 0x1800 - LOAD_ADDRESS
         OFF_1900 = 0x1900 - LOAD_ADDRESS
@@ -825,10 +825,16 @@ class DefmonSong:
             addr += 0x0F
         OFF_1A00 = 0x1A00 - LOAD_ADDRESS
         OFF_1A80 = 0x1A80 - LOAD_ADDRESS
+        OFF_1F = 0x1F00 - LOAD_ADDRESS
         for x in range(128):
             ptr = 0x1F00 + x * 0x80
             out[OFF_1A00 + x] = ptr & 0xFF
             out[OFF_1A80 + x] = (ptr >> 8) & 0xFF
+            out[OFF_1F + x * 0x80 + 0x7C] |= 0x80
+        # defMON clears each gate when its post-LOAD pass runs (all $01 on disk)
+        out[0x715E - LOAD_ADDRESS] = 0
+        out[0x715F - LOAD_ADDRESS] = 0
+        out[0x7162 - LOAD_ADDRESS] = 0
         return out
 
     def __repr__(self) -> str:

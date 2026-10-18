@@ -11,6 +11,11 @@ Top-level API:
   (flag + slot_a + slot_b + note).
 * :class:`SidtabRow` — one 15-byte sidTAB row (per-frame envelope
   / timbre / filter program; bitmap-encoded columns).
+* Stereo (2SID) editing: ``DefmonSong.arranger_v4`` / ``v5`` / ``v6``
+  (the SID#2 voices' per-step pattern arrays), ``stereo_enable`` /
+  ``set_stereo``, ``sid2_base`` / ``set_sid2_base``, plus the per-tune
+  tempo fields ``cia2_timer`` / ``sub_frame_count`` on the
+  runtime-state page.
 * :class:`SidcallFrame` — one row of a sidTAB cascade walk
   starting from a given row index.
 * :class:`DefmonPlayer` — per-frame SID register player that runs

@@ -101,6 +101,25 @@ the replay even when it is relocated; the container is unwrapped through the
 shared [`pysidtracker`](https://github.com/anarkiwi/pysidtracker) base and header
 addresses are not trusted.
 
+### Pack-save export PRGs (SHIFT+P)
+
+defMON's own file menu also exports the packed replay as a bare C64 PRG, in two
+forms:
+
+| Form          | Load | Body                                                              |
+|---------------|------|-------------------------------------------------------------------|
+| `raw`         | `$1000` | the packed replay (player + compaction data), as in the `.sid` image |
+| `executable`  | `$0801` | 9-byte BASIC `SYS 2061` stub (bytes `0B 08 01 00 9E 32 30 36 31`) + the editor's host boot block, then the same replay |
+
+`DefmonSong.from_bytes` detects these with `pydefmon._sid_format.prg_replay`
+(`find_signature` in the PRG body; the editor workfile is excluded because its
+body carries no player with a consistent data base) and decodes the replay
+exactly as the PSID/RSID path does, so the structural model, region accessors,
+`DefmonPlayer`, and the shared CLI `info`/`reglog`/`wav` all apply.
+`DefmonPlayer` synthesizes the init/play addresses from the located player base
+(plus the export's tempo, which defMON bakes into the executable's boot) and
+renders byte-identically to the matching `.sid`.
+
 The replay embeds the player's runtime data tables directly rather than as a
 saved image, and stores pattern bodies and sidTAB rows *compacted* (variable
 length, tightly packed) addressed through pointer tables. The reader

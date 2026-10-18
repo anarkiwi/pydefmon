@@ -15,7 +15,10 @@ Reads `.sid` files (PSID/RSID containers), bare `.prg` editor workfiles, and
 defMON's own pack-save export PRGs (SHIFT+P: the `$1000` raw export and the
 `$0801` executable with its BASIC stub + host boot) through the shared
 [`pysidtracker`](https://github.com/anarkiwi/pysidtracker) base, decoding all
-of them to the same `$1800..$7166` structural model. A `.prg` workfile is the
+of them to the same `$1800..$7166` structural model. Prehistoric 2008-build
+worktunes (raw `$1700` saves with no RLE codec) are detected by load address
+and rejected with a specific `DefmonParseError` (see
+[docs/format.md](docs/format.md#prehistoric-2008-builds-raw-1700-worktunes)). A `.prg` workfile is the
 composer's editor form, the export PRGs and `.sid` the packer's canonical form
 — the same tune, not the same bytes — compare them with `DefmonSong.diff` (not
 a raw `snapshot ==`). The relocatable player is located by signature; container

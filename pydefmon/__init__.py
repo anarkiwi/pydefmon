@@ -20,6 +20,9 @@ Top-level API:
 Constants:
 
 * :data:`LOAD_ADDRESS` — ``$1800``, where defMON tunes load.
+* :data:`PREHISTORIC_LOAD_ADDRESS` — ``$1700``, the raw worktune save base
+  of the prehistoric 2008 builds (detected and rejected with a specific
+  :class:`DefmonParseError`).
 * :data:`STANDARD_SNAPSHOT_END` / :data:`STANDARD_SNAPSHOT_SIZE`
   — the runtime RAM image end (``$7167``) and length (22887).
 * :data:`NOTE_PITCH_LO` / :data:`NOTE_PITCH_HI` — 256-byte
@@ -48,6 +51,8 @@ from pydefmon.defmon import (
     LOAD_ADDRESS,
     NOTE_PITCH_HI,
     NOTE_PITCH_LO,
+    PREHISTORIC_LOAD_ADDRESS,
+    PREHISTORIC_WORKTUNE_ERROR,
     PatternEvent,
     RegionDiff,
     SidcallFrame,
@@ -67,6 +72,8 @@ __all__ = [
     "LOAD_ADDRESS",
     "NOTE_PITCH_HI",
     "NOTE_PITCH_LO",
+    "PREHISTORIC_LOAD_ADDRESS",
+    "PREHISTORIC_WORKTUNE_ERROR",
     "PatternEvent",
     "RegionDiff",
     "RegWrite",

@@ -30,6 +30,31 @@ _RAM_SIZE = 0x10000
 _MAX_CALL_CYCLES = 30_000_000
 
 
+def place_and_run(editor_image: bytes, payload: bytes, *entry_points: int) -> bytearray:
+    """Place ``payload`` at ``$1800``, set the LOAD-end word, run defMON entries.
+
+    Wires pysidtracker's 6502 (NMOS illegal opcodes), runs each ``entry_point``
+    in order on a copy of the editor image, and returns the (mutated) image so
+    the caller can read defMON's output words.
+    """
+    if len(editor_image) != _RAM_SIZE:
+        raise ValueError(
+            "editor image must be 65536 bytes (decrunched defMON editor RAM), "
+            f"got {len(editor_image)}"
+        )
+    if not payload:
+        raise ValueError("payload is empty")
+    mem = bytearray(editor_image)
+    mem[PRG_LOAD : PRG_LOAD + len(payload)] = payload
+    end = PRG_LOAD + len(payload)
+    mem[LOAD_END_LO] = end & 0xFF
+    mem[LOAD_END_HI] = end >> 8
+    mpu, _obs = wire_mpu(mem, illegal_opcodes=True, sid_model="6581")
+    for entry in entry_points:
+        run_to_rts(mpu, mem, entry, 0, _MAX_CALL_CYCLES)
+    return mem
+
+
 def pack(editor_image: bytes, worktune_prg: bytes) -> tuple[bytes, int]:
     """Run defMON's own SAVE pipeline to pack a worktune PRG.
 
@@ -37,31 +62,15 @@ def pack(editor_image: bytes, worktune_prg: bytes) -> tuple[bytes, int]:
     PRG; returns ``(image, end)`` — the packed replay bytes
     ``mem[$1000..end)`` and the exclusive end from ``song_end_pointer``.
     """
-    if len(editor_image) != _RAM_SIZE:
-        raise ValueError(
-            "editor image must be 65536 bytes (decrunched defMON editor RAM), "
-            f"got {len(editor_image)}"
-        )
     if len(worktune_prg) < 4:
         raise ValueError("worktune prg is too short to carry a load address + body")
-
-    mem = bytearray(editor_image)
-    mem[PRG_LOAD : PRG_LOAD + len(worktune_prg)] = worktune_prg
-    end = PRG_LOAD + len(worktune_prg)
-    mem[LOAD_END_LO] = end & 0xFF
-    mem[LOAD_END_HI] = end >> 8
-
-    mpu, _obs = wire_mpu(mem, illegal_opcodes=True, sid_model="6581")
-    run_to_rts(mpu, mem, DECODE_ENTRY, 0, _MAX_CALL_CYCLES)
-    run_to_rts(mpu, mem, PACK_ENTRY, 0, _MAX_CALL_CYCLES)
-
+    mem = place_and_run(editor_image, worktune_prg, DECODE_ENTRY, PACK_ENTRY)
     song_end = mem[SONG_END_LO] | (mem[SONG_END_HI] << 8)
     if not (REPLAY_BASE < song_end < _RAM_SIZE):
         raise RuntimeError(
             f"defMON packer produced an implausible image end ${song_end:04X}"
         )
     image = bytes(mem[REPLAY_BASE:song_end])
-
     if find_signature(image) < 0:
         raise RuntimeError("defMON packer output has no player signature")
     return image, song_end

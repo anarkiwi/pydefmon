@@ -1,5 +1,6 @@
 """Test-only helpers. Not part of the public package."""
 
+import hashlib
 import os
 import struct
 import tempfile
@@ -205,3 +206,43 @@ def fixture_path(name: str) -> Path:
                 _atomic_write(dst, f.prg)
                 return dst
     raise FileNotFoundError(f"no fixture {name!r} in the defMON release")
+
+
+DEFMON_EDITOR_D64 = "defmon-20201008.d64"
+DEFMON_STATIC_SHA256 = (
+    "bc78644c5597a91b86df54aabcc6fbc76ccedf5bf0f3ddc63ac475dc6527b329"
+)
+
+
+def editor_image_bytes() -> Optional[bytes]:
+    """64K defMON V20201008 editor RAM image (packing oracle), or ``None``.
+
+    A local ``FIXTURES_DIR/defmon-static.bin`` wins; otherwise the
+    editor PRG is fetched from the release .d64, decrunched, sha256-
+    verified, and cached. Offline runners get ``None`` and skip.
+    """
+    dst = FIXTURES_DIR / "defmon-static.bin"
+    if dst.exists():
+        data = dst.read_bytes()
+        if hashlib.sha256(data).hexdigest() == DEFMON_STATIC_SHA256:
+            return data
+    try:
+        prgs = fetch_prgs(
+            DEFMON_RELEASE_URL, cache_dir=FIXTURES_DIR, member=DEFMON_EDITOR_D64
+        )
+    except TuneFetchError:
+        return None
+    from pysidtracker import native_decrunch
+
+    for f in prgs:
+        if not f.name.lstrip(".").upper().startswith("DEFMON"):
+            continue
+        image = native_decrunch(f.prg)
+        if image is None or len(image.mem) != 0x10000:
+            continue
+        flat = bytes(image.mem)
+        if hashlib.sha256(flat).hexdigest() != DEFMON_STATIC_SHA256:
+            continue
+        _atomic_write(dst, flat)
+        return flat
+    return None

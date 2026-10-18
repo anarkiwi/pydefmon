@@ -28,7 +28,8 @@ cache them on demand.
 path: the `.prg` fixtures (`tests/_support/__init__.py`) ship the
 [V20201008](https://csdb.dk/release/?id=196474) release's worktunes, and every
 assertion in this document — the `$D6C9` LOAD codec, the `$1800..$7166` RAM
-layout, the `$CF42`/`$D004` post-LOAD passes — derives from that build. The
+layout, the gated `$CF42`/`$D004`/`$CFB8` post-LOAD passes — derives from that
+build. The
 HVSC `.sid` corpus additionally spans the Goto80-era (2008) compact-runtime
 replay driver, so both `.sid` decode families verify byte-exact — but
 worktunes from any other build are not part of the test corpus.
@@ -143,8 +144,8 @@ reconstruction frame-exact against the `sidtrace` `sidplayfp` oracle.
 
 ### Runtime RAM image: `$1800..$7166`
 
-After LOAD + defMON's `$CF42` / `$D004` post-LOAD fixup passes, the runtime RAM
-image is 22887 bytes laid out as:
+After LOAD + defMON's gated post-LOAD fixup passes (`$CF42` / `$D004` /
+`$CFB8`, below), the runtime RAM image is 22887 bytes laid out as:
 
 | Address              | Length  | Region                                              | `DefmonSong` accessor |
 |----------------------|---------|-----------------------------------------------------|-----------------------|
@@ -160,6 +161,22 @@ image is 22887 bytes laid out as:
 | `$5F00..$7166`       | 4711 B  | 256 sidTAB rows × 15 B each + sidcall metadata      | `sidtab_region`, `sidtab_row(y)` |
 
 Bytes past `$7166` are editor state and not preserved.
+
+#### Post-LOAD gates (`$715E`, `$715F`, `$7162`)
+
+defMON's `post_load_chain` runs a post-LOAD pass only when its gate byte is
+non-zero, and each run pass clears its gate:
+
+| Gate    | Pass    | Effect                                                            |
+|---------|---------|-------------------------------------------------------------------|
+| `$715E` | `$CF42` | rewrites active rows to the `$5F00 + Y*15` runtime pointers       |
+| `$715F` | `$D004` | fills the pattern pointer cache with `$1F00 + X*$80`              |
+| `$7162` | `$CFB8` | sets bit 7 of every pattern's step-31 byte (offset `$7C`, ALT)    |
+
+An editor without a pass saves that gate zero, so its LOAD keeps the raw
+decoded bytes there (e.g. V20140612 saves `$715F` zero, leaving
+`$1A00..$1AFF` zero after LOAD). `DefmonSong.unpacked_snapshot()` models these
+gates and `DefmonSong.to_bytes()` keeps whatever gates the source carried.
 
 #### Song-position arrays (`$1800` + `$1900`)
 
@@ -181,7 +198,8 @@ edit API; reads return the on-disk marker form, not the runtime-rewritten form.
 #### Pattern pointer cache (`$1A00..$1AFF`)
 
 Zero on disk; defMON's `$D004` post-LOAD pass fills it at runtime with the lo/hi
-of `$1F00 + X*$80` for `X` in `0..127`. `DefmonSong.unpacked_snapshot()` returns
+of `$1F00 + X*$80` for `X` in `0..127` (only when gate `$715F` is set — older
+edits' saves leave it zero after LOAD). `DefmonSong.unpacked_snapshot()` returns
 a copy with this region materialised, matching what the player sees at runtime.
 
 #### Voice arrangers (`$1B00`, `$1C00`, `$1D00`)

@@ -1,22 +1,8 @@
-"""defMON's ``$D6C9`` LOAD-time codec — RLE decoder + encoder.
+"""defMON's ``$D6C9`` LOAD-time codec: RLE decoder and SAVE encoders.
 
-Private to :mod:`pydefmon`; reach for :class:`pydefmon.DefmonSong` to
-read/write defMON ``.prg`` files. The codec sits underneath
-:meth:`DefmonSong.from_bytes` / :meth:`DefmonSong.to_bytes` and
-matches the real defMON loader byte-for-byte (a freshly-encoded
-tune is byte-loadable by the original binary).
-
-Two entry points:
-
-* :func:`decode_load_stream` — parses a defMON PRG body into a
-  ``{addr: byte}`` write map. Inverse of the on-chip ``$D6C9``
-  backward-walking decoder.
-* :func:`encode_ram_block` — builds a defMON-loadable PRG (load
-  address header + body) that decodes back to a given RAM block.
-  Greedy backward emission; the encoder picks any valid encoding
-  (defMON's own SAVE picks edit-history-dependent encodings that
-  pydefmon doesn't reproduce — both are valid PRGs that load to
-  the same RAM image).
+``decode_load_stream`` inverts the on-chip ``$D6C9`` decoder.
+``encode_worktune`` ports defMON SAVE's ``$D626`` walk byte-for-byte;
+``encode_ram_block`` is a greedy valid-decode encoder for any RAM block.
 """
 
 from __future__ import annotations
@@ -304,3 +290,79 @@ def encode_ram_block(ram: bytes | bytearray, base_addr: int) -> bytes:
         raise CodecError(f"block ${base_addr:04X}+{len(ram)} overflows past $FFFF")
     target = bytes(reversed(ram))
     return encode_load_stream(target, dest_start=top_addr)
+
+
+# ---- faithful defMON SAVE encoder ($CE81 walk) -------------------------
+
+
+def _save_emit_run(v: int, run: int, out: bytearray) -> None:
+    """Emit one ``$D626`` run of ``v`` (repeated ``run`` times).
+
+    Runs 1 and 2 emit ``v`` (doubled if ``v == $FF``; run 2 also repeats
+    that pair, mirroring the run-2 path falling through the run-1 path);
+    runs of 3+ emit ``v`` (doubled if ``$FF``), then ``$FF`` and ``run - 2``.
+    """
+    if run >= 3:
+        out.append(v)
+        if v == ESC:
+            out.append(v)
+        out.append(ESC)
+        out.append(run - 2)
+        return
+    pairs = 2 if run == 2 else 1
+    for _ in range(pairs):
+        out.append(v)
+        if v == ESC:
+            out.append(v)
+
+
+def encode_worktune(
+    src: bytes | bytearray, top: int, *, base: int = LOAD_ADDR
+) -> bytes:
+    """Encode the save-prepared ``$1800..top`` region as a defMON ``.prg``.
+
+    Faithful port of defMON SAVE (the ``$D626`` walk): emits the encoder's
+    exact run/escape choices, then the trailer encoding ``top``. ``src`` must
+    be ``top - base + 1`` bytes; an unmodified load round-trips byte-identical.
+    """
+    if not (base <= top <= 0xFFFF):
+        raise CodecError(f"top ${top:04X} out of range (base ${base:04X})")
+    expect = top - base + 1
+    if len(src) != expect:
+        raise CodecError(
+            f"src must be {expect} bytes (${base:04X}..${top:04X}), got {len(src)}"
+        )
+
+    body = bytearray()
+    n = len(src)
+    i = 0
+    while i < n:
+        v = src[i]
+        run = 1
+        while i + run < n and src[i + run] == v and run < 256:
+            run += 1
+        _save_emit_run(v, run, body)
+        i += run
+    body.append(top & 0xFF)
+    body.append(((top >> 8) - 0x18) & 0xFF)
+
+    _verify_decode_worktune(bytes(body), top, bytes(src), base)
+    return bytes([base & 0xFF, base >> 8]) + bytes(body)
+
+
+def _verify_decode_worktune(body: bytes, top: int, src: bytes, base: int) -> None:
+    """Round-trip guard: the ``$D6C9`` decoder must reconstruct ``src``."""
+    src_end = base + len(body) - 1 - 4
+    try:
+        writes, _ = decode_load_stream(
+            body, src_end_addr=src_end, src_floor=base, dest_start=top
+        )
+    except CodecError as exc:
+        raise CodecError(f"encode_worktune failed self-decode: {exc}") from exc
+    for i, val in enumerate(src):
+        got = writes.get(base + i)
+        if got != val:
+            raise CodecError(
+                f"encode_worktune round-trip mismatch at ${base + i:04X}: "
+                f"want {val:02X}, got {got if got is None else format(got, '02X')}"
+            )

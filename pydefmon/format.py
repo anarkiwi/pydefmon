@@ -56,7 +56,7 @@ def defmon_format() -> SidFormat:
     return SidFormat(
         name="defmon",
         parser=DefmonSidParser(),
-        player=lambda song: DefmonPlayer(song.image_bytes),
+        player=lambda song: DefmonPlayer(song.image_bytes, subtune=song.subtune),
         metadata=_metadata,
         describe=lambda song: [f"snapshot: {len(song.snapshot)} bytes"],
     )

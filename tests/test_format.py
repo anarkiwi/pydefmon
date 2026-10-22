@@ -20,6 +20,7 @@ from pysidtracker import formats as formats_mod
 from pysidtracker import maincli
 
 from pydefmon.defmon import DefmonSong
+from pydefmon.defmon_player import DefmonPlayer
 from pydefmon.format import _metadata, defmon_format
 
 from tests._support import fixture_path, resolve_tune, synthetic_replay
@@ -62,6 +63,20 @@ class TestDefmonFormat(unittest.TestCase):
         song.image_bytes = synthetic_replay()
         player = defmon_format().player(song)
         self.assertEqual(len(player.render_grid(2)), 2)
+
+    def test_parse_carries_the_subtune_to_the_player(self):
+        path = resolve_tune("MUSICIANS/G/Goto80/Rent-A-Cop.sid")
+        if path is None:
+            self.skipTest("multi-song defMON replay unreachable (offline)")
+        raw, fmt = path.read_bytes(), defmon_format()
+        self.assertIsNone(fmt.parser.parse(raw).subtune)
+        grids = [
+            fmt.player(fmt.parser.parse(raw, subtune=k)).render_grid(100)
+            for k in (0, 1)
+        ]
+        for k, grid in enumerate(grids):
+            self.assertEqual(grid, DefmonPlayer(raw, subtune=k).render_grid(100))
+        self.assertNotEqual(grids[0], grids[1])
 
     def test_entry_point_registered(self):
         names = [f.name for f in formats_mod.discover_formats()]

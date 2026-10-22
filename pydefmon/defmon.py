@@ -227,6 +227,8 @@ class DefmonSong:
         # derived by tracing init; a workfile cannot.
         self.image_bytes: bytes = b""
         self.replay_layout: str = ""
+        # The 0-based subtune a replay of ``image_bytes`` plays (None: its start song).
+        self.subtune: "int | None" = None
 
     # ---- construction ----
 
@@ -1618,8 +1620,13 @@ class DefmonSidParser(BaseSidParser):
 
     error_class: type = DefmonParseError
 
-    def parse(self, data: bytes, **kwargs: Any) -> DefmonSong:
-        return DefmonSong.from_bytes(data)
+    def parse(
+        self, data: bytes, subtune: "int | None" = None, **kwargs: Any
+    ) -> DefmonSong:
+        """The song of ``data``; ``subtune`` (0-based) is the one its replay plays."""
+        song = DefmonSong.from_bytes(data)
+        song.subtune = subtune
+        return song
 
     def recognize(self, image: SidImage) -> "int | None":
         addr = _sid_format.find_signature(image.mem)

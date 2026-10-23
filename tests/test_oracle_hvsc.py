@@ -13,28 +13,18 @@ directly against the sidtrace oracle. The TUNES set spans both replay-decode
 families, multiple authors, both SID models and CIA multi-speed timing.
 """
 
-import os
 import sys
 from pathlib import Path
 
 import pytest
 
 from pysidtracker import make_oracle_fixtures
-from pysidtracker.oracle import (
-    aligned_match,
-    cached_sidtrace,
-    sidtrace_cadence,
-    sidtrace_grid,
-)
-from pysidtracker.testing import resolve_tune
+from pysidtracker.oracle import aligned_match
+from pysidtracker.testing import TuneFetchError, oracle_grid, resolve_tune
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import oracle_hvsc  # noqa: E402  (after sys.path tweak)
-
-# Cache under the workspace (a Docker-daemon-visible path, and what CI persists
-# via actions/cache). ``$PYDEFMON_ORACLE_CACHE`` overrides the location.
-_CACHE = Path(os.environ.get("PYDEFMON_ORACLE_CACHE", ".oracle-cache"))
 
 # HVSC defMON ``.sid`` replays verified byte-exact against the deterministic
 # oracle. Covers both runtime replay variations pydefmon supports plus a spread
@@ -64,13 +54,7 @@ def _render(data, nframes):
     return oracle_hvsc.render(data, 1, nframes)[0].tolist()
 
 
-tune_id, oracle_match = make_oracle_fixtures(
-    TUNES,
-    hvsc_cache=_CACHE / "hvsc",
-    oracle_cache=_CACHE / "csv",
-    render=_render,
-    frames=250,
-)
+tune_id, oracle_match = make_oracle_fixtures(TUNES, render=_render, frames=250)
 
 
 @pytest.mark.oracle
@@ -94,14 +78,9 @@ SUBTUNES = {
 @pytest.mark.parametrize("key", list(SUBTUNES))
 def test_subtune_matches_oracle(key):
     relpath, song, nframes = SUBTUNES[key]
-    path = resolve_tune(relpath, cache_dir=_CACHE / "hvsc")
-    assert path is not None, f"tune {key} unavailable (offline, not cached)"
-    rows = cached_sidtrace(
-        path,
-        _CACHE / "csv" / f"{key}.csv.zst",
-        seconds=nframes // 50 + 2,
-        song=song,
-    )
-    expected = sidtrace_grid(rows, cycles_per_frame=sidtrace_cadence(rows))[:nframes]
+    path = resolve_tune(relpath)
+    if path is None:
+        raise TuneFetchError(f"tune {key} unavailable (offline, not cached)")
+    expected = oracle_grid(path, seconds=nframes // 50 + 2, frames=nframes, song=song)
     rendered = oracle_hvsc.render(path.read_bytes(), song, len(expected))[0].tolist()
     assert aligned_match(expected, rendered), f"{key}: render differs from oracle"

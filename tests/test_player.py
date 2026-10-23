@@ -9,17 +9,17 @@ corpus is reachable.
 
 from __future__ import annotations
 
-import struct
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
 from pysidtracker import SidImage
+from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer, DefmonSong
 from pydefmon.defmon import DefmonError
 
-from tests._support import fixture_path, resolve_tune, synthetic_replay
+from tests._support import synthetic_replay
 
 
 class TestDefmonPlayer(unittest.TestCase):
@@ -59,21 +59,16 @@ class TestDefmonPlayer(unittest.TestCase):
     def test_pw_hi_masked(self):
         # Construct a replay whose init writes $FF to a pulse-width-hi register
         # ($D403); render_grid must mask it to the low nibble.
-        raw = bytearray(synthetic_replay())
-        # Overwrite init: LDA #$FF STA $D403 ... keep RTS chain intact.
-        code_off = 0x7C  # data starts here; $1000 maps to code_off
-        raw[code_off : code_off + 5] = bytes([0xA9, 0xFF, 0x8D, 0x03, 0xD4])
-        grid = DefmonPlayer(bytes(raw)).render_grid(1)
+        raw = synthetic_replay(init="LDA #$FF\nSTA $D403\nRTS")
+        grid = DefmonPlayer(raw).render_grid(1)
         self.assertEqual(grid[0][0x03], 0x0F)
 
     def test_subtune_from_start_song(self):
-        raw = bytearray(self.replay)
-        struct.pack_into(">H", raw, 0x0E, 4)  # songs
-        struct.pack_into(">H", raw, 0x10, 3)  # start song -> subtune 2
-        player = DefmonPlayer(bytes(raw))
+        raw = synthetic_replay(songs=4, start_song=3)  # subtune 2
+        player = DefmonPlayer(raw)
         # Accumulator carried the subtune into init; render still runs.
         self.assertEqual(len(player.render_grid(2)), 2)
-        self.assertEqual(len(DefmonPlayer(bytes(raw), subtune=0).render_grid(1)), 1)
+        self.assertEqual(len(DefmonPlayer(raw, subtune=0).render_grid(1)), 1)
 
     def test_cycles_per_frame_is_pal_frame_without_cia(self):
         # The synthetic init programs no CIA timer, so cadence is the PAL frame.
@@ -93,23 +88,19 @@ class TestDefmonPlayer(unittest.TestCase):
             DefmonPlayer(b"\x00\x18" + b"\x00" * 32)
 
     def test_replay_reading_raster_renders(self):
-        # play: LDA $D012 (raster); STA $D400; RTS -> exercises the raster read
-        # subscription. Value is cycle-derived; only the run path is asserted.
-        raw = bytearray(synthetic_replay())
-        play_off = 0x7C + 0x20  # data offset + play offset -> $1020
-        raw[play_off : play_off + 7] = bytes([0xAD, 0x12, 0xD0, 0x8D, 0x00, 0xD4, 0x60])
-        grid = DefmonPlayer(bytes(raw)).render_grid(3)
+        # The raster read subscription. Value is cycle-derived; only the run path
+        # is asserted.
+        raw = synthetic_replay(play="LDA $D012\nSTA $D400\nRTS")
+        grid = DefmonPlayer(raw).render_grid(3)
         self.assertEqual(len(grid), 3)
 
     def test_loader_zero_page_words(self):
-        # play: LDA $AD; STA $D400; LDA $AE; STA $D401; LDA $2D; STA $D402; RTS
-        # -> the load start hi ($AD) and load end lo ($AE, $2D) of the loader.
-        raw = bytearray(synthetic_replay())
-        play_off = 0x7C + 0x20  # data offset + play offset -> $1020
-        code = bytes.fromhex("a5ad8d00d4a5ae8d01d4a52d8d02d460")
-        raw[play_off : play_off + len(code)] = code
-        end = SidImage.from_bytes(bytes(raw)).end
-        row = DefmonPlayer(bytes(raw)).render_grid(1)[0]
+        # The load start hi ($AD) and load end lo ($AE, $2D) of the loader.
+        raw = synthetic_replay(
+            play="LDA $AD\nSTA $D400\nLDA $AE\nSTA $D401\nLDA $2D\nSTA $D402\nRTS"
+        )
+        end = SidImage.from_bytes(raw).end
+        row = DefmonPlayer(raw).render_grid(1)[0]
         self.assertEqual(row[:3], [0x10, end & 0xFF, end & 0xFF])
 
 
@@ -117,11 +108,6 @@ class TestDefmonPlayerRealReplay(unittest.TestCase):
     """A real HVSC replay drives the player when the corpus is reachable."""
 
     def _real_replay(self):
-        # Prefer a fixture-dir replay; else fetch one known-small DefMon .sid.
-        try:
-            return fixture_path("glow_worm.sid").read_bytes()
-        except FileNotFoundError:
-            pass
         path = resolve_tune("MUSICIANS/I/Ilkke/Glow_Worm.sid")
         if path is None:
             raise unittest.SkipTest("no real defMON .sid reachable (offline)")

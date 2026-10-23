@@ -63,8 +63,9 @@ pytest -n auto
 ```
 
 Tests that need real defMON tunes fetch + cache them on demand (the copyright
-editor workfiles from the csdb release, the HVSC replays for the corpus) and
-skip when offline; nothing needs pre-populating.
+editor workfiles from the csdb release, the HVSC replays for the corpus) into
+pysidtracker's `.tunecache` (`$PYSID_TUNECACHE`) and skip when offline; nothing
+needs pre-populating.
 
 ## License
 

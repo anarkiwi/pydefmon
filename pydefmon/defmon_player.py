@@ -62,7 +62,8 @@ class DefmonPlayer(EmuPlayer):
     the header's ``startSong`` selects the subtune unless ``subtune`` overrides
     it. Play calls run at the tune's play-routine cadence and osc3/env3 reads
     come from the SID model the header names. Memory starts as sidplayfp's
-    power-on RAM with the BASIC loader's zero-page pointers to the tune.
+    power-on RAM with the BASIC loader's zero-page pointers to the tune
+    (:func:`pysidtracker.poweron.place_tune`).
     Drive it with the inherited :meth:`~pysidtracker.MemPlayer.play_frame`
     (per-frame ``(reg, value)`` writes, ``reg`` a ``0..24`` SID register offset)
     or :meth:`~pysidtracker.MemPlayer.render_grid` (per-frame 25-register grid);
@@ -99,7 +100,6 @@ class DefmonPlayer(EmuPlayer):
         play = header.play_address or init
         if subtune is None:
             subtune = (header.start_song or 1) - 1
-        self._span = (image.load, image.end)
         super().__init__(
             image.image,
             image.load,
@@ -112,21 +112,6 @@ class DefmonPlayer(EmuPlayer):
                 image, subtune=subtune
             ).cycles_per_call,
         )
-
-    def _init(self, subtune: int) -> None:
-        # sidplayfp leaves the zero page as the BASIC loader would: the load end
-        # in $2D/$2F/$31 (program / variables / arrays end), the load start and
-        # end in $AC/$AE. A replay reading stray pattern data there sees them.
-        start, end = self._span
-        for addr, word in (
-            (0x2D, end),
-            (0x2F, end),
-            (0x31, end),
-            (0xAC, start),
-            (0xAE, end),
-        ):
-            self._mem[addr : addr + 2] = (word & 0xFFFF).to_bytes(2, "little")
-        super()._init(subtune)
 
     @property
     def cycles_per_frame(self) -> int:

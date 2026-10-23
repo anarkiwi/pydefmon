@@ -220,9 +220,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
-# HVSC tunes fetched at test-time (never committed)
-build/tunecache/
-
-# sidtrace oracle cache (HVSC tunes + oracle CSVs; never committed)
-.oracle-cache/
+# pysidtracker's download cache (HVSC tunes, csdb release, oracle traces):
+# copyright works, never committed.
+.tunecache/
 .hvsc-survey/
+
+# Core dumps
+/core
+core.[0-9]*

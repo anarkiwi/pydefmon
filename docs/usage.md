@@ -69,10 +69,11 @@ the [`pysidtracker.survey`](https://github.com/anarkiwi/pysidtracker/blob/main/d
 whole-song comparison against the `sidtrace` oracle (Docker), over every subtune
 of every HVSC defMON tune. Its `info` reports the decoded replay `layout`
 (`editor` / `goto80`), `rsid`, the play `trigger` (`pal_video` / `ntsc_video` /
-`cia_timer`), `speed` (play calls per PAL frame) and `dynamic` (variable timer).
+`cia_timer`), `speed` (play calls per PAL frame) and `dynamic` (variable timer),
+the last four from `pysidtracker.cadence.cadence_info`.
 
 ```bash
-pip install "pysidtracker[survey]>=0.17.0"
+pip install "pysidtracker[survey]>=0.32.0"
 python -m pysidtracker.survey find $HVSC --player '^defmon$' --out .hvsc-survey/tunes.csv
 PYTHONPATH=scripts python -m pysidtracker.survey run $HVSC .hvsc-survey/tunes.csv \
     --work .hvsc-survey --render oracle_hvsc:render --jobs 32

@@ -1,167 +1,83 @@
-"""Test-only helpers. Not part of the public package."""
+"""Test-only helpers. Not part of the public package.
 
+Every download (HVSC tunes, the csdb defMON release, the author's 2008 builds)
+goes through :mod:`pysidtracker.testing` into its one cache root, ``.tunecache``.
+"""
+
+import functools
 import hashlib
-import io
 import os
-import struct
 import tempfile
-import time
-import urllib.error
-import urllib.request
-import zipfile
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from pysidtracker.testing import TuneFetchError, fetch_prgs, fetch_tune
+from pysidtracker import native_decrunch
+from pysidtracker.asm6502 import assemble
+from pysidtracker.header import write_psid
+from pysidtracker.testing import (
+    TuneFetchError,
+    default_cache,
+    fetch_archive_member,
+    fetch_prgs,
+    resolve_tune,
+)
 
-# A minimal but *runnable* PSID replay: real 6502 code so the DefmonPlayer jennings
-# path (init + play + snapshot) is exercised offline, with no copyrighted HVSC
-# material. init seeds volume ($D418=$0F) and V0 control ($D404=$21); play
-# increments V0 freq-lo ($D400) every call, giving a deterministic grid.
 _SYNTH_LOAD = 0x1000
-_SYNTH_PLAY_OFF = 0x20
-_SYNTH_INIT = bytes(
-    [0xA9, 0x0F, 0x8D, 0x18, 0xD4, 0xA9, 0x21, 0x8D, 0x04, 0xD4, 0x60]
-)  # LDA #$0F STA $D418  LDA #$21 STA $D404  RTS
-_SYNTH_PLAY = bytes([0xEE, 0x00, 0xD4, 0x60])  # INC $D400  RTS
+_SYNTH_PLAY = 0x1020
+_SYNTH_INIT = "LDA #$0F\nSTA $D418\nLDA #$21\nSTA $D404\nRTS"
+_SYNTH_STEP = "INC $D400\nRTS"
 
 
-def synthetic_replay() -> bytes:
-    """Return a runnable single-voice PSID replay (see module comment)."""
-    code = bytearray(0x40)
-    code[0 : len(_SYNTH_INIT)] = _SYNTH_INIT
-    code[_SYNTH_PLAY_OFF : _SYNTH_PLAY_OFF + len(_SYNTH_PLAY)] = _SYNTH_PLAY
-    header = bytearray(0x7C)
-    header[0:4] = b"PSID"
-    struct.pack_into(">H", header, 0x04, 2)  # version
-    struct.pack_into(">H", header, 0x06, 0x7C)  # data offset
-    struct.pack_into(">H", header, 0x08, _SYNTH_LOAD)  # load address
-    struct.pack_into(">H", header, 0x0A, _SYNTH_LOAD)  # init address
-    struct.pack_into(">H", header, 0x0C, _SYNTH_LOAD + _SYNTH_PLAY_OFF)  # play
-    struct.pack_into(">H", header, 0x0E, 1)  # songs
-    struct.pack_into(">H", header, 0x10, 1)  # start song
-    return bytes(header + code)
+def synthetic_replay(
+    init: str = _SYNTH_INIT, play: str = _SYNTH_STEP, songs: int = 1, start_song=1
+) -> bytes:
+    """A minimal but *runnable* PSID replay, with no copyrighted HVSC material.
+
+    ``init`` (at ``$1000``) and ``play`` (at ``$1020``) are 6502 source, so the
+    DefmonPlayer jennings path (init + play + snapshot) runs offline. By default
+    init seeds volume ($D418=$0F) and V0 control ($D404=$21) and play increments
+    V0 freq-lo ($D400) every call, giving a deterministic grid.
+    """
+    image = bytearray(0x40)
+    for org, source in ((_SYNTH_LOAD, init), (_SYNTH_PLAY, play)):
+        code = assemble(source, org)[0]
+        image[org - _SYNTH_LOAD : org - _SYNTH_LOAD + len(code)] = code
+    return write_psid(
+        load=_SYNTH_LOAD,
+        init=_SYNTH_LOAD,
+        play=_SYNTH_PLAY,
+        image=bytes(image),
+        songs=songs,
+        start_song=start_song,
+    )
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-FIXTURES_DIR = Path(
-    os.environ.get("PYDEFMON_FIXTURES_DIR", REPO_ROOT / "build" / "fixtures")
-)
-
-# Gitignored runtime cache for HVSC tunes fetched by the corpus tests. HVSC
-# tunes are copyright works and are NEVER committed; CI caches this dir with
-# actions/cache keyed on the corpus list + this file's hash.
-TUNECACHE_DIR = Path(
-    os.environ.get("PYDEFMON_TUNECACHE", REPO_ROOT / "build" / "tunecache")
-)
-# Public HVSC mirror serving the C64Music tree over HTTPS.
-HVSC_MIRROR = os.environ.get(
-    "PYDEFMON_HVSC_MIRROR", "https://hvsc.brona.dk/HVSC/C64Music"
-)
 # The curated list of DefMon .sid replays (relative to C64Music) the corpus
-# tests exercise. Committed (paths only, no tune bytes); drives both the CI
-# cache key and the fetch set.
+# tests exercise. Committed (paths only, no tune bytes).
 CORPUS_LIST = Path(__file__).resolve().parent / "defmon_corpus.txt"
 
 
 def corpus_relpaths() -> List[str]:
     """Return the committed list of DefMon ``.sid`` relative paths."""
-    if not CORPUS_LIST.exists():
-        return []
-    return [
-        line.strip()
-        for line in CORPUS_LIST.read_text(encoding="ascii").splitlines()
-        if line.strip()
-    ]
-
-
-def resolve_tune(relpath: str) -> Optional[Path]:
-    """Resolve one HVSC tune (relative to ``C64Music``) to a local file.
-
-    Prefers the local ``$HVSC`` tree; otherwise serves it from the gitignored
-    tunecache, fetching from :data:`HVSC_MIRROR` (with retries) on a cache miss
-    via :func:`pysidtracker.testing.fetch_tune`. Returns ``None`` only if the
-    tune is genuinely unreachable (offline runner) -- callers skip that
-    individual tune.
-    """
-    root = hvsc_root()
-    if root is not None:
-        local = root / relpath
-        if local.is_file():
-            return local
-    try:
-        return fetch_tune(relpath, cache_dir=TUNECACHE_DIR, mirror=HVSC_MIRROR)
-    except TuneFetchError:
-        return None
+    return CORPUS_LIST.read_text(encoding="ascii").split()
 
 
 def resolve_corpus() -> List[Tuple[str, Path]]:
-    """Resolve every listed DefMon tune to a local file (fetching + caching
-    as needed). Unreachable tunes are omitted (offline runner)."""
-    out: List[Tuple[str, Path]] = []
-    for rel in corpus_relpaths():
-        path = resolve_tune(rel)
-        if path is not None:
-            out.append((rel, path))
-    return out
-
-
-def hvsc_root() -> Optional[Path]:
-    """Return the local HVSC ``C64Music`` tree, or ``None`` if unavailable.
-
-    Honours ``$HVSC`` (or ``$PYDEFMON_HVSC``). HVSC tunes are copyright
-    works and are never redistributed with pydefmon; corpus tests that need
-    them ``skipTest`` when this returns ``None``.
-    """
-    for env in ("HVSC", "PYDEFMON_HVSC"):
-        val = os.environ.get(env)
-        if val and Path(val).is_dir():
-            return Path(val)
-    return None
-
-
-def find_defmon_sids(root: Path) -> List[Path]:
-    """Return every DefMon ``.sid`` replay under ``root`` (by player signature).
-
-    Mirrors what sidid identifies as ``DefMon``: it scans for defMON's player
-    SID-write-band signature in each PSID/RSID image.
-    """
-    from pydefmon._sid_format import SIGNATURE
-
-    anchor = bytes(SIGNATURE[4:10])  # fixed (non-wildcard) run for prefilter
-
-    def has_sig(buf: bytes) -> bool:
-        start = 0
-        while True:
-            j = buf.find(anchor, start)
-            if j < 0:
-                return False
-            a = j - 4
-            if a >= 0 and all(
-                w is None or (a + i < len(buf) and buf[a + i] == w)
-                for i, w in enumerate(SIGNATURE)
-            ):
-                return True
-            start = j + 1
-
-    out: List[Path] = []
-    for path in root.rglob("*.sid"):
-        try:
-            data = path.read_bytes()
-        except OSError:
-            continue
-        if data[:4] in (b"PSID", b"RSID") and has_sig(data):
-            out.append(path)
-    return sorted(out)
+    """Every listed DefMon tune resolved to a local file; unreachable ones omitted."""
+    return [(rel, p) for rel in corpus_relpaths() if (p := resolve_tune(rel))]
 
 
 # The official defMON V20201008 release on csdb (https://csdb.dk/release/?id=196474),
 # a .zip of two .d64 disk images. The editor .prg workfiles it ships are the only
 # fixtures that exercise the $D6C9 LOAD codec and the .prg reader/edit/round-trip
 # API; HVSC carries the .sid replays, not these. The tunes are copyright and never
-# committed, so they are fetched + extracted into the gitignored cache on demand.
+# committed.
 DEFMON_RELEASE_URL = "https://csdb.dk/getinternalfile.php/204680/defmon-20201008.zip"
 DEFMON_RELEASE_D64 = "defmon-withtunes.d64"
+DEFMON_EDITOR_D64 = "defmon-20201008.d64"
+DEFMON_STATIC_SHA256 = (
+    "bc78644c5597a91b86df54aabcc6fbc76ccedf5bf0f3ddc63ac475dc6527b329"
+)
 
 
 def _sanitize(name: str) -> str:
@@ -187,73 +103,64 @@ def _atomic_write(dst: Path, data: bytes) -> None:
 
 
 def fixture_path(name: str) -> Path:
-    """Return the path to a defMON ``.prg`` workfile fixture, or raise.
+    """The defMON release's ``name`` workfile (a sanitised ``.prg`` name), or raise.
 
-    A local file under ``$PYDEFMON_FIXTURES_DIR`` wins (offline / a warm CI
-    cache); otherwise the requested ``.prg`` is extracted from the csdb defMON
-    release ``.d64`` (fetched + cached via :func:`pysidtracker.testing.fetch_prgs`)
-    on first use. Raises :class:`FileNotFoundError` when the fixture can't be
-    produced -- an unreachable release (offline) or a non-``.prg`` name -- so
-    callers ``skipTest``.
+    The release ``.d64`` is fetched once into the cache's ``disks/``
+    (:func:`pysidtracker.testing.fetch_prgs`) and its workfiles extracted beside
+    it. Raises :class:`FileNotFoundError` when the release is unreachable
+    (offline) or has no such file, so callers ``skipTest``.
     """
-    dst = FIXTURES_DIR / name
+    dst = default_cache("disks") / "defmon-withtunes" / name
     if dst.exists():
         return dst
-    if name.endswith(".prg"):
-        try:
-            prgs = fetch_prgs(
-                DEFMON_RELEASE_URL, cache_dir=FIXTURES_DIR, member=DEFMON_RELEASE_D64
-            )
-        except TuneFetchError as exc:
-            raise FileNotFoundError(f"cannot fetch defMON fixtures: {exc}") from exc
-        for f in prgs:
-            if f"{_sanitize(f.name)}.prg" == name:
-                _atomic_write(dst, f.prg)
-                return dst
+    try:
+        prgs = fetch_prgs(DEFMON_RELEASE_URL, member=DEFMON_RELEASE_D64)
+    except TuneFetchError as exc:
+        raise FileNotFoundError(f"cannot fetch defMON fixtures: {exc}") from exc
+    for f in prgs:
+        if f"{_sanitize(f.name)}.prg" == name:
+            _atomic_write(dst, f.prg)
+            return dst
     raise FileNotFoundError(f"no fixture {name!r} in the defMON release")
 
 
-DEFMON_EDITOR_D64 = "defmon-20201008.d64"
-DEFMON_STATIC_SHA256 = (
-    "bc78644c5597a91b86df54aabcc6fbc76ccedf5bf0f3ddc63ac475dc6527b329"
-)
+def _decrunched(name: str, sha256: str, prg) -> Optional[bytes]:
+    """The 64K image ``native_decrunch`` unpacks from ``prg()``, verified and cached.
 
-
-def editor_image_bytes() -> Optional[bytes]:
-    """64K defMON V20201008 editor RAM image (packing oracle), or ``None``.
-
-    A local ``FIXTURES_DIR/defmon-static.bin`` wins; otherwise the
-    editor PRG is fetched from the release .d64, decrunched, sha256-
-    verified, and cached. Offline runners get ``None`` and skip.
+    Cached as ``disks/name`` while its SHA-256 is ``sha256``; ``None`` when
+    ``prg()`` returns none (offline). Raises :class:`ValueError` when none of them
+    decrunches to ``sha256`` (a decrunch regression, not an offline runner).
     """
-    dst = FIXTURES_DIR / "defmon-static.bin"
-    if dst.exists():
-        data = dst.read_bytes()
-        if hashlib.sha256(data).hexdigest() == DEFMON_STATIC_SHA256:
-            return data
-    try:
-        prgs = fetch_prgs(
-            DEFMON_RELEASE_URL, cache_dir=FIXTURES_DIR, member=DEFMON_EDITOR_D64
-        )
-    except TuneFetchError:
-        return None
-    from pysidtracker import native_decrunch
-
-    for f in prgs:
-        if not f.name.lstrip(".").upper().startswith("DEFMON"):
-            continue
-        image = native_decrunch(f.prg)
-        if image is None or len(image.mem) != 0x10000:
-            continue
-        flat = bytes(image.mem)
-        if hashlib.sha256(flat).hexdigest() != DEFMON_STATIC_SHA256:
-            continue
-        _atomic_write(dst, flat)
-        return flat
+    dst = default_cache("disks") / name
+    if dst.exists() and hashlib.sha256(dst.read_bytes()).hexdigest() == sha256:
+        return dst.read_bytes()
+    candidates = prg()
+    for data in candidates:
+        image = native_decrunch(data)
+        flat = bytes(image.mem) if image is not None else b""
+        if hashlib.sha256(flat).hexdigest() == sha256:
+            _atomic_write(dst, flat)
+            return flat
+    if candidates:
+        raise ValueError(f"no {name} candidate decrunches to SHA-256 {sha256}")
     return None
 
 
-# Prehistoric 2008 defMON builds (issue #39), author-distributed oldversions.zip: fetched + cached on demand, never committed.
+def _editor_prgs():
+    try:
+        prgs = fetch_prgs(DEFMON_RELEASE_URL, member=DEFMON_EDITOR_D64)
+    except TuneFetchError:
+        return []
+    return [f.prg for f in prgs if f.name.lstrip(".").upper().startswith("DEFMON")]
+
+
+@functools.cache
+def editor_image_bytes() -> Optional[bytes]:
+    """64K defMON V20201008 editor RAM image (packing oracle), or ``None`` offline."""
+    return _decrunched("defmon-static.bin", DEFMON_STATIC_SHA256, _editor_prgs)
+
+
+# Prehistoric 2008 defMON builds (issue #39), the author's oldversions.zip.
 PREHISTORIC_ZIP_URL = (
     "https://defmon.vandervecken.com/lib/exe/fetch.php?media=download:oldversions.zip"
 )
@@ -270,61 +177,28 @@ PREHISTORIC_56_BLOCKS_MEM_SHA256 = (
 )
 
 
-def _fetch_bytes(url: str, retries: int = 4) -> bytes:
-    """Download ``url`` with a user-agent and retry/backoff; raises TuneFetchError."""
-    req = urllib.request.Request(url, headers={"User-Agent": "pydefmon/tests"})
-    last_err: Optional[Exception] = None
-    for attempt in range(retries):
-        try:
-            with urllib.request.urlopen(req, timeout=60) as resp:  # nosec B310
-                return resp.read()
-        except urllib.error.HTTPError as exc:
-            if exc.code == 404:
-                raise TuneFetchError(f"{url}: not found") from exc
-            last_err = exc
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
-            last_err = exc
-        if attempt + 1 < retries:
-            time.sleep(min(2**attempt, 5))
-    raise TuneFetchError(f"{url}: unreachable after {retries} attempts ({last_err})")
+def _prehistoric_prg():
+    try:
+        path = fetch_archive_member(
+            PREHISTORIC_ZIP_URL,
+            PREHISTORIC_ZIP_SHA256,
+            PREHISTORIC_56_BLOCKS,
+            PREHISTORIC_56_BLOCKS_SHA256,
+            archive_name="oldversions.zip",
+        )
+    except TuneFetchError:
+        return []
+    return [path.read_bytes()]
 
 
+@functools.cache
 def prehistoric_56block_image() -> Optional[bytes]:
     """64K decrunched RAM image of the 2008 56-block defMON build, or ``None``.
 
-    Zip / PRG / decrunch sha256-pinned (see :data:`PREHISTORIC_*`) from the
-    author's ``oldversions.zip``; cached at
-    ``FIXTURES_DIR/defmon-56blocks.dcr.bin``. Offline runners get ``None``.
+    The zip and PRG are SHA-256-pinned (:func:`fetch_archive_member` raises
+    ``ChecksumMismatch`` on a changed pin) and the decrunched image is checked
+    against :data:`PREHISTORIC_56_BLOCKS_MEM_SHA256`.
     """
-    dst = FIXTURES_DIR / "defmon-56blocks.dcr.bin"
-    if dst.exists():
-        data = dst.read_bytes()
-        if hashlib.sha256(data).hexdigest() == PREHISTORIC_56_BLOCKS_MEM_SHA256:
-            return data
-    try:
-        blob = _fetch_bytes(PREHISTORIC_ZIP_URL)
-    except TuneFetchError:
-        return None
-    if hashlib.sha256(blob).hexdigest() != PREHISTORIC_ZIP_SHA256:
-        raise ValueError("oldversions.zip sha256 mismatch (provenance)")
-    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-        prg = next(
-            (
-                zf.read(n)
-                for n in zf.namelist()
-                if n.split("/")[-1] == PREHISTORIC_56_BLOCKS
-            ),
-            None,
-        )
-    if prg is None or hashlib.sha256(prg).hexdigest() != PREHISTORIC_56_BLOCKS_SHA256:
-        raise ValueError(f"{PREHISTORIC_56_BLOCKS} sha256 mismatch (provenance)")
-    from pysidtracker import native_decrunch
-
-    image = native_decrunch(prg)
-    if image is None or len(image.mem) != 0x10000:
-        raise ValueError(f"{PREHISTORIC_56_BLOCKS} did not decrunch to 64K")
-    flat = bytes(image.mem)
-    if hashlib.sha256(flat).hexdigest() != PREHISTORIC_56_BLOCKS_MEM_SHA256:
-        raise ValueError("decrunched 56-block image sha256 mismatch")
-    _atomic_write(dst, flat)
-    return flat
+    return _decrunched(
+        "defmon-56blocks.dcr.bin", PREHISTORIC_56_BLOCKS_MEM_SHA256, _prehistoric_prg
+    )

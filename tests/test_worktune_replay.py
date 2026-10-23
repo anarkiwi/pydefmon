@@ -11,13 +11,14 @@ import unittest
 
 from pysidtracker import SidImage
 from pysidtracker.header import write_psid
+from pysidtracker.testing import resolve_tune
 
 from pydefmon import _packer
 from pydefmon._sid_format import find_signature
 from pydefmon.defmon import STANDARD_SNAPSHOT_SIZE, DefmonError, DefmonSong
 from pydefmon.defmon_player import DefmonPlayer
 
-from tests._support import editor_image_bytes, fixture_path, resolve_tune
+from tests._support import editor_image_bytes, fixture_path
 
 _WORKTUNES = (
     "automatas2017.prg",

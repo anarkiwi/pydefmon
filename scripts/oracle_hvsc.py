@@ -6,8 +6,7 @@
 
 import numpy as np
 
-from pysidtracker.cadence import playroutine_cadence
-from pysidtracker.registers import PAL_CYCLES_PER_FRAME
+from pysidtracker.cadence import cadence_info
 
 from pydefmon import DefmonPlayer, DefmonSong
 
@@ -17,14 +16,7 @@ PLAYER = "^defmon$"
 def render(data, song, nframes):
     """Render 1-based ``song`` of a defMON ``.sid`` and the replay variant it decoded."""
     tune = DefmonSong.from_sid_bytes(data)
-    cadence = playroutine_cadence(data, subtune=song - 1)
-    info = {
-        "layout": tune.replay_layout,
-        "rsid": data[:4] == b"RSID",
-        "trigger": cadence.source and cadence.source.value,
-        "speed": round(PAL_CYCLES_PER_FRAME / cadence.cycles_per_call),
-        "dynamic": cadence.dynamic,
-    }
+    info = {"layout": tune.replay_layout, **cadence_info(data, song)}
     return (
         np.asarray(DefmonPlayer(data, subtune=song - 1).render_grid(nframes), np.int16),
         info,

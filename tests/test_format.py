@@ -18,19 +18,16 @@ from unittest import mock
 
 from pysidtracker import formats as formats_mod
 from pysidtracker import maincli
+from pysidtracker.testing import resolve_tune
 
 from pydefmon.defmon import DefmonSong
 from pydefmon.defmon_player import DefmonPlayer
 from pydefmon.format import _metadata, defmon_format
 
-from tests._support import fixture_path, resolve_tune, synthetic_replay
+from tests._support import synthetic_replay
 
 
 def _real_defmon_sid_or_skip(test):
-    try:
-        return fixture_path("glow_worm.sid").read_bytes()
-    except FileNotFoundError:
-        pass
     path = resolve_tune("MUSICIANS/I/Ilkke/Glow_Worm.sid")
     if path is None:
         test.skipTest("no real defMON .sid reachable (offline)")

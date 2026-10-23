@@ -6,10 +6,10 @@ the ``.sid`` reader path is exercised without the corpus fixtures. The
 when the local tree is present.
 """
 
-import struct
 import unittest
 
 from pysidtracker import SidImage
+from pysidtracker.header import write_psid
 
 from pydefmon._sid_format import SIGNATURE, depack_replay, find_signature
 from pydefmon.defmon import DefmonError, DefmonSong, DefmonSidParser
@@ -34,17 +34,9 @@ _PAT1_EVENTS = (
 _PAT2_EVENTS = ((0x51, 0x07, 0, 0x42), (0x80, 0, 0, 0))
 
 
-def _psid_header(data_offset: int) -> bytearray:
-    h = bytearray(data_offset)
-    h[0:4] = b"PSID"
-    struct.pack_into(">H", h, 0x04, 2)  # version
-    struct.pack_into(">H", h, 0x06, data_offset)
-    struct.pack_into(">H", h, 0x08, LOAD)  # loadAddress
-    struct.pack_into(">H", h, 0x0A, LOAD)  # initAddress
-    struct.pack_into(">H", h, 0x0C, 0x1003)  # playAddress
-    struct.pack_into(">H", h, 0x0E, 1)  # songs
-    struct.pack_into(">H", h, 0x10, 1)  # startSong
-    return h
+def _blank_psid() -> bytes:
+    """A PSID with no player signature anywhere."""
+    return write_psid(load=LOAD, init=LOAD, play=0x1003, image=bytes(0x800))
 
 
 def _put(image: bytearray, addr: int, data: bytes) -> None:
@@ -83,8 +75,7 @@ def _synthetic_replay(*, with_pattern: bool = True) -> bytes:
     if with_pattern:
         _put(image, PAT_ADDR, _PAT1_PACKED + _PAT2_PACKED)
 
-    header = _psid_header(0x7C)
-    return bytes(header + image)
+    return write_psid(load=LOAD, init=LOAD, play=0x1003, image=bytes(image))
 
 
 class TestSidReplayReader(unittest.TestCase):
@@ -144,10 +135,7 @@ class TestSidReplayReader(unittest.TestCase):
 
     def test_depack_non_replay_returns_none(self):
         # PSID with no signature anywhere.
-        header = _psid_header(0x7C)
-        self.assertIsNone(
-            depack_replay(SidImage.from_bytes(bytes(header + bytearray(0x800))))
-        )
+        self.assertIsNone(depack_replay(SidImage.from_bytes(_blank_psid())))
 
     def test_public_reader_dispatches_on_magic(self):
         raw = _synthetic_replay()
@@ -172,8 +160,7 @@ class TestSidReplayReader(unittest.TestCase):
         self.assertIn("packer variant", str(ctx.exception))
 
     def test_non_replay_psid_raises(self):
-        header = _psid_header(0x7C)
-        raw = bytes(header + bytearray(0x800))
+        raw = _blank_psid()
         with self.assertRaises(DefmonError) as ctx:
             DefmonSong.from_sid_bytes(raw)
         self.assertIn("signature not found", str(ctx.exception))

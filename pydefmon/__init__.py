@@ -94,4 +94,4 @@ __all__ = [
     "write_reglog",
 ]
 
-__version__ = "0.10.1"
+__version__ = "0.10.2"

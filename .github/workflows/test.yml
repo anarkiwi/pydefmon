@@ -25,15 +25,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
 
-      - name: Cache test fixtures (defMON release .prg + HVSC corpus tunes)
-        uses: actions/cache@v6
+      - uses: anarkiwi/pysidtracker/.github/actions/cache@v0.32.0
         with:
-          path: |
-            build/fixtures
-            build/tunecache
-          key: >-
-            fixtures-${{ hashFiles('tests/_support/defmon_corpus.txt',
-            'tests/_support/__init__.py') }}
+          key: ${{ hashFiles('tests/_support/*', 'tests/*.py') }}
+          tunes: tests tests/_support/defmon_corpus.txt
 
       - name: Run pytest (xdist + coverage)
         run: >-
@@ -59,8 +54,7 @@ jobs:
   oracle:
     # Byte-exact comparison of DefmonPlayer's py65 render against the sidtrace
     # sidplayfp oracle over real HVSC defMON tunes. Never skipped: a failed HVSC
-    # download or oracle render fails the job. HVSC tunes and oracle CSVs are
-    # cached (tune bytes are copyright and never committed).
+    # download or oracle render fails the job.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -72,23 +66,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev]
-      - name: Pull sidtrace oracle image
-        id: image
-        run: |
-          docker pull anarkiwi/sidtrace:latest
-          digest=$(docker inspect --format '{{index .RepoDigests 0}}' anarkiwi/sidtrace:latest)
-          echo "digest=${digest##*@}" >> "$GITHUB_OUTPUT"
-      - name: Cache HVSC tunes
-        uses: actions/cache@v6
+      - uses: anarkiwi/pysidtracker/.github/actions/cache@v0.32.0
         with:
-          path: .oracle-cache/hvsc
-          key: hvsc-${{ hashFiles('tests/test_oracle_hvsc.py') }}
-          restore-keys: hvsc-
-      - name: Cache oracle CSVs
-        uses: actions/cache@v6
-        with:
-          path: .oracle-cache/csv
-          key: oracle-csv-${{ steps.image.outputs.digest }}-${{ hashFiles('tests/test_oracle_hvsc.py') }}
+          key: ${{ hashFiles('tests/test_oracle_hvsc.py') }}
+          sidtrace: "true"
+          tunes: tests/test_oracle_hvsc.py
       - name: Oracle comparison (never skipped)
         run: pytest -m oracle -n auto
 

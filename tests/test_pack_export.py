@@ -9,13 +9,14 @@ import unittest
 
 from pysidtracker import SidImage
 from pysidtracker.header import write_psid
+from pysidtracker.testing import resolve_tune
 
 from pydefmon import _packer
 from pydefmon._sid_format import find_signature, prg_replay
 from pydefmon.defmon import STANDARD_SNAPSHOT_SIZE, DefmonParseError, DefmonSong
 from pydefmon.defmon_player import DefmonPlayer
 
-from tests._support import editor_image_bytes, fixture_path, resolve_tune
+from tests._support import editor_image_bytes, fixture_path
 
 _DANSA = "dansa_in.prg"
 _SID = "MUSICIANS/G/Goto80/Dansa_in.sid"

@@ -7,6 +7,8 @@ is unreachable (offline).
 
 import unittest
 
+from pysidtracker.testing import resolve_tune
+
 from pydefmon.defmon import (
     DIFF_REGIONS,
     DefmonError,
@@ -19,7 +21,7 @@ from pydefmon.defmon import (
     STANDARD_SNAPSHOT_SIZE,
 )
 
-from tests._support import fixture_path, resolve_tune
+from tests._support import fixture_path
 
 
 def _glow_worm_or_skip(test):

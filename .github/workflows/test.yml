@@ -25,7 +25,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e .[dev]
 
-      - uses: anarkiwi/pysidtracker/.github/actions/cache@v0.32.0
+      - uses: anarkiwi/pysidtracker/.github/actions/cache@v0.36.0
         with:
           key: ${{ hashFiles('tests/_support/*', 'tests/*.py') }}
           tunes: tests tests/_support/defmon_corpus.txt
@@ -66,11 +66,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e .[dev]
-      - uses: anarkiwi/pysidtracker/.github/actions/cache@v0.32.0
+      - uses: anarkiwi/pysidtracker/.github/actions/cache@v0.36.0
         with:
-          key: ${{ hashFiles('tests/test_oracle_hvsc.py') }}
+          key: ${{ hashFiles('tests/test_oracle_hvsc.py', 'tests/_support/pathdiff_xfails.json') }}
           sidtrace: "true"
-          tunes: tests/test_oracle_hvsc.py
+          tunes: tests/test_oracle_hvsc.py tests/_support/pathdiff_xfails.json
       - name: Oracle comparison (never skipped)
         run: pytest -m oracle -n auto
 

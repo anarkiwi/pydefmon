@@ -73,7 +73,7 @@ of every HVSC defMON tune. Its `info` reports the decoded replay `layout`
 the last four from `pysidtracker.cadence.cadence_info`.
 
 ```bash
-pip install "pysidtracker[survey]>=0.32.0"
+pip install "pysidtracker[survey]>=0.36.0"
 python -m pysidtracker.survey find $HVSC --player '^defmon$' --out .hvsc-survey/tunes.csv
 PYTHONPATH=scripts python -m pysidtracker.survey run $HVSC .hvsc-survey/tunes.csv \
     --work .hvsc-survey --render oracle_hvsc:render --jobs 32
@@ -83,6 +83,30 @@ PYTHONPATH=scripts python -m pysidtracker.survey diff $HVSC .hvsc-survey/tunes.c
 ```
 
 `.hvsc-survey/` holds copyright-derived traces and is gitignored.
+
+### pathdiff strict xfails
+
+[`tests/_support/pathdiff_xfails.json`](../tests/_support/pathdiff_xfails.json)
+holds one case per fix in
+[`pysidtracker.pathdiff`](https://github.com/anarkiwi/pysidtracker/blob/main/docs/pathdiff.md)'s
+minimum cover of the survey's divergences, run as strict xfails by
+[`tests/test_pathdiff_xfails.py`](../tests/test_pathdiff_xfails.py) in the `oracle`
+job. An empty manifest means every surveyed subtune agrees. After a survey `run`
+(with `--format defmon`), regenerate it with:
+
+```bash
+python -m pysidtracker.pathdiff build $HVSC .hvsc-survey/tunes.csv --work .hvsc-survey \
+    --left 6502 --right format:defmon --jobs 32 --force
+python -m pysidtracker.pathdiff rank --work .hvsc-survey --left 6502 --right format:defmon \
+    --explain 10
+python -m pysidtracker.pathdiff xfails --work .hvsc-survey --left 6502 --right format:defmon \
+    --manifest tests/_support/pathdiff_xfails.json --top 15 --verify \
+    --as-left 6502 --as-right format:defmon
+```
+
+Existing cases are kept; add `--prune` to drop those that now pass. `rank` writes
+`fixes.csv` and `explain/<rank>.txt` (whydiff) under
+`.hvsc-survey/pathdiff/6502-format.defmon/`.
 
 ## What's in the package
 

@@ -30,7 +30,7 @@ import oracle_hvsc  # noqa: E402  (after sys.path tweak)
 # oracle. Covers both runtime replay variations pydefmon supports plus a spread
 # of authors:
 #   * standard defMON editor-layout replay -- Demsky, Ilkke, Dex-D;
-#   * Goto80's older compact-runtime replay -- Rent-A-Cop, Ponky;
+#   * Goto80's older compact-runtime replay -- Rent-A-Cop;
 #   * osc3/env3-driven cutoff on a 6581 and CIA multi-speed timing.
 TUNES = {
     # Standard editor-layout replay driver.
@@ -41,6 +41,7 @@ TUNES = {
     "dexd_short": "MUSICIANS/D/Dex-D/Short_Dream.sid",
     # Goto80 compact-runtime replay driver.
     "goto80_rentacop": "MUSICIANS/G/Goto80/Rent-A-Cop.sid",
+    # Ponky decodes as the standard ``editor`` layout, not the compact runtime.
     "goto80_ponky": "MUSICIANS/G/Goto80/Ponky.sid",
     # 6581-flagged, filter cutoff driven by osc3/env3 reads.
     "dexd_2manu3l": "MUSICIANS/D/Dex-D/2Manu3L.sid",

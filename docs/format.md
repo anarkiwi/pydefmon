@@ -118,8 +118,8 @@ body carries no player with a consistent data base) and decodes the replay
 exactly as the PSID/RSID path does, so the structural model, region accessors,
 `DefmonPlayer`, and the shared CLI `info`/`reglog`/`wav` all apply.
 `DefmonPlayer` synthesizes the init/play addresses from the located player base
-(plus the export's tempo, which defMON bakes into the executable's boot) and
-renders byte-identically to the matching `.sid`.
+(init = base, play = base + 3, PAL + 8580); it starts at the player base and
+skips the executable's boot, so the export's baked-in tempo is not applied.
 
 The replay embeds the player's runtime data tables directly rather than as a
 saved image, and stores pattern bodies and sidTAB rows *compacted* (variable
@@ -156,9 +156,10 @@ bitmask bodies — rather than the absolute-indexed 4-byte-row tables above.
 the build's own track-stepper / orderlist code idioms) and re-expands them into
 the editor-layout snapshot; `from_sid_bytes` uses it as the fallback after the
 canonical reconstruction. `tests/test_hvsc_sid_corpus.py` asserts the whole
-corpus recognises and decodes soundly, and `tests/test_oracle_hvsc.py`
-(`goto80_rentacop`, `goto80_ponky`, `goto80_reloaded_*`) verifies the Goto80
-reconstruction frame-exact against the `sidtrace` `sidplayfp` oracle.
+corpus recognises and decodes soundly. `tests/test_oracle_hvsc.py`
+(`goto80_rentacop`) compares `DefmonPlayer`'s render against the `sidtrace`
+`sidplayfp` oracle, but `DefmonPlayer` runs the tune's own 6502 code, so the
+decode itself is not oracle-verified.
 
 ### Prehistoric 2008 builds (raw `$1700` worktunes)
 

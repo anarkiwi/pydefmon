@@ -92,7 +92,7 @@ holds one case per fix in
 minimum cover of the survey's divergences, run as strict xfails by
 [`tests/test_pathdiff_xfails.py`](../tests/test_pathdiff_xfails.py) in the `oracle`
 job. An empty manifest means every surveyed subtune agrees. After a survey `run`
-(with `--format defmon`), regenerate it with:
+(with `--render`), regenerate it with:
 
 ```bash
 python -m pysidtracker.pathdiff build $HVSC .hvsc-survey/tunes.csv --work .hvsc-survey \

@@ -20,8 +20,7 @@ instrument programs with a DL/duration column) -- only the RUNTIME
   sidCALL1/GATE_A present, bit5 ``$20`` = sidCALL2/GATE_B present, bit4
   ``$10`` = note/GATE_N present, bits3-0 = row duration. Present fields
   follow in the order sidCALL1, sidCALL2, note. This mirrors defMON's
-  ``$1147`` row-advance semantics exactly (see
-  :meth:`pydefmon.defmon_player.DefmonPlayer._pattern_advance`).
+  ``$1147`` row-advance semantics exactly.
 * **sidTAB rows** are the same variable-length bitmask instrument
   programs the modern player already interprets, reached through a
   ``sidtab_lo[row]`` / ``sidtab_hi[row]`` pointer pair with a DL byte at
@@ -48,7 +47,6 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from pysidtracker import CodePattern, SidImage, find_code_all, find_code_first
-from pysidtracker import registers as reg
 
 from pydefmon._layout import (
     LOAD_ADDRESS,
@@ -191,39 +189,3 @@ def decode_replay(image: SidImage) -> Optional[bytes]:
     if not _has_pattern_data(snap):
         return None
     return bytes(snap)
-
-
-# Signature-relative work-block operand offsets (voice 0), from the SID-write
-# band the signature anchors: PW lo/hi at sig+1/sig+3, FREQ lo/hi at
-# sig+11/sig+13, and the 16-bit slide accumulator 10 bytes below PW lo. Voice
-# v adds the $31 stride. defMON's init does NOT clear these, so a running tune
-# inherits the loaded (author) values on frame 0.
-_VOICE_STRIDE = 0x31
-
-
-def seed_player_from_replay(player, raw: bytes) -> bool:
-    """Seed a :class:`~pydefmon.defmon_player.DefmonPlayer`'s per-voice
-    pulse-width, frequency and slide-accumulator operands from the residual
-    work-block values a Goto80 replay loads (defMON's init leaves these
-    non-zero). Returns ``True`` if the signature was found and seeding was
-    applied. Needed for frame-0-onward parity because the player's output
-    band emits the previous call's operands (output-then-compute)."""
-    image = SidImage.from_bytes(raw)
-    mem = image.mem
-    sig = find_signature(mem)
-    if sig < 0:
-        return False
-    for v_idx, voice in enumerate(player.voices):
-        o = v_idx * _VOICE_STRIDE
-        voice.pulse_lo = mem[(sig + 1 + o) & 0xFFFF]
-        voice.pulse_hi = mem[(sig + 3 + o) & 0xFFFF]
-        voice.freq_lo = mem[(sig + 11 + o) & 0xFFFF]
-        voice.freq_hi = mem[(sig + 13 + o) & 0xFFFF]
-        voice.slide_accum_lo = mem[(sig - 9 + o) & 0xFFFF]
-        voice.slide_accum_hi = mem[(sig - 8 + o) & 0xFFFF]
-    return True
-
-
-# The SID register base is re-exported for callers that build absolute
-# register addresses from :mod:`pysidtracker.registers` rather than literals.
-SID_BASE = reg.SID_BASE

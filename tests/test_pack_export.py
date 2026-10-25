@@ -15,6 +15,7 @@ from pydefmon import _packer
 from pydefmon._sid_format import find_signature, prg_replay
 from pydefmon.defmon import STANDARD_SNAPSHOT_SIZE, DefmonParseError, DefmonSong
 from pydefmon.defmon_player import DefmonPlayer
+from pydefmon.format import _metadata
 
 from tests._support import editor_image_bytes, fixture_path
 
@@ -97,6 +98,12 @@ class TestPackExport(unittest.TestCase):
         grid = DefmonPlayer(self.raw).render_grid(_RENDER)
         self.assertEqual(len(grid), _RENDER)
         self.assertEqual(len(grid[0]), 25)
+
+    def test_export_metadata_locates_the_player(self):
+        raw = _metadata(DefmonSong.from_bytes(self.raw))
+        exe = _metadata(DefmonSong.from_bytes(self.exe))
+        self.assertEqual(raw, ("", "", "", 0x1000, 0x1000, 0x1003))
+        self.assertEqual(exe, ("", "", "", 0x0801, 0x1000, 0x1003))
 
     def test_exe_player_renders_and_matches_raw(self):
         self.assertEqual(

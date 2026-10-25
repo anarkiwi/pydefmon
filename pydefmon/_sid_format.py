@@ -38,9 +38,14 @@ from typing import List, Optional, Tuple
 from pysidtracker import CodePattern, SidImage, find_code_first, parse_prg
 from pysidtracker import registers as reg
 
-LOAD_ADDRESS = 0x1800
-SNAPSHOT_END = 0x7167
-SNAPSHOT_SIZE = SNAPSHOT_END - LOAD_ADDRESS  # 22887
+from pydefmon._layout import (
+    LOAD_ADDRESS,
+    PATTERN_BANK,
+    PATTERN_STRIDE,
+    SNAPSHOT_SIZE,
+    relocate_sidtab_row,
+    store_pattern,
+)
 
 
 def _sid_store(opcode: str, register: int) -> str:
@@ -77,14 +82,6 @@ SIGNATURE: tuple = tuple(None if t == "??" else int(t, 16) for t in _SIG_SPEC.sp
 # Signature deltas (canonical player base $1000, play body $1022, data base $1800).
 _SIGNATURE_FROM_PLAYER_BASE = 0x22
 _DATA_BASE_FROM_SIGNATURE = 0x7DE
-
-_FLAG_ALT = 0x80
-_GATE_BITS = (0x40, 0x20, 0x10)  # payload order: slot_a, slot_b, note
-_STEPS_PER_PATTERN = 32
-_PATTERN_STRIDE = 0x80
-_SIDTAB_ROW_STRIDE = 15
-_PATTERN_BANK = 0x1F00
-_SIDTAB_BANK = 0x5F00
 
 
 def find_signature(mem, start: int = 0, end: int = 0x10000) -> int:
@@ -123,29 +120,6 @@ def prg_replay(raw: bytes) -> Optional[Tuple[int, int]]:
     return load, load + sig - _SIGNATURE_FROM_PLAYER_BASE
 
 
-def _walk_pattern(absrd, start: int):
-    """Yield a packed pattern body's steps as editor-layout 4-byte events.
-
-    Bodies are variable length: a flag byte then one payload byte per set gate
-    bit (``$40`` slot_a, ``$20`` slot_b, ``$10`` note), which is exactly what
-    the player's stream pointer advances by ($11BD: ``TYA / CLC / ADC $1186``).
-    Stops after the ALT (``$80``) step, or at 32 steps.
-    """
-    pos = start
-    for _ in range(_STEPS_PER_PATTERN):
-        flag = absrd(pos)
-        pos += 1
-        event = bytearray(4)
-        event[0] = flag
-        for slot, gate in enumerate(_GATE_BITS):
-            if flag & gate:
-                event[slot + 1] = absrd(pos)
-                pos += 1
-        yield bytes(event)
-        if flag & _FLAG_ALT:
-            return
-
-
 def _reconstruct(mem, data_base: int) -> bytearray:
     """Re-expand a packed replay's data into the editor-layout snapshot."""
     delta = data_base - LOAD_ADDRESS
@@ -160,17 +134,13 @@ def _reconstruct(mem, data_base: int) -> bytearray:
 
     # Low editor regions ($1800..$1EFF: pointer arrays, arrangers, DL)
     # carry over verbatim; the sidTAB pointer arrays are rewritten below.
-    for addr in range(LOAD_ADDRESS, _PATTERN_BANK):
+    for addr in range(LOAD_ADDRESS, PATTERN_BANK):
         snap[addr - LOAD_ADDRESS] = src(addr)
 
     # Pattern bodies: $1A00/$1A80 holds each body's absolute address.
     for n in range(128):
         start = src(0x1A00 + n) | (src(0x1A80 + n) << 8)
-        dst = _PATTERN_BANK + n * _PATTERN_STRIDE - LOAD_ADDRESS
-        for ev, event in enumerate(_walk_pattern(absrd, start)):
-            d = dst + ev * 4
-            if 0 <= d and d + 4 <= len(snap):
-                snap[d : d + 4] = event
+        store_pattern(snap, absrd, n, start)
 
     # sidTAB rows: $1800/$1900 pointer pair. Non-zero hi => absolute address
     # of the row's compacted body; re-expand into fixed $5F00 slots and mark
@@ -187,11 +157,7 @@ def _reconstruct(mem, data_base: int) -> bytearray:
             snap[off_lo] = lo
             continue
         row_addr = lo | (hi << 8)
-        dst = _SIDTAB_BANK + y * _SIDTAB_ROW_STRIDE
-        for k in range(_SIDTAB_ROW_STRIDE):
-            d = dst + k - LOAD_ADDRESS
-            if 0 <= d < len(snap):
-                snap[d] = absrd(row_addr + k)
+        relocate_sidtab_row(snap, absrd, y, row_addr)
         snap[off_hi] = 0x11
         snap[off_lo] = 0
 
@@ -217,8 +183,8 @@ def _referenced_patterns(snap: bytearray) -> List[int]:
 def _has_pattern_data(snap: bytearray) -> bool:
     """True if any arranger-referenced pattern has a non-empty body."""
     for pat in _referenced_patterns(snap):
-        base = _PATTERN_BANK + pat * _PATTERN_STRIDE - LOAD_ADDRESS
-        if any(snap[base : base + _PATTERN_STRIDE]):
+        base = PATTERN_BANK + pat * PATTERN_STRIDE - LOAD_ADDRESS
+        if any(snap[base : base + PATTERN_STRIDE]):
             return True
     return False
 

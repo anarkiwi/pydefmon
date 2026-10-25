@@ -71,6 +71,7 @@ from typing import Any
 
 from pysidtracker import BaseSidParser, SidError, SidImage, SidParseError, parse_prg
 from pysidtracker.header import write_psid
+from pysidtracker.locate import STATIC, Strategy, locate
 from pysidtracker.registers import PAL_CLOCK_HZ
 
 from pydefmon import _packer
@@ -185,6 +186,14 @@ class DefmonError(SidError, ValueError):
 
 class DefmonParseError(DefmonError, SidParseError):
     """Raised when a file does not look like a defMON tune, or cannot be decoded."""
+
+
+# Replay layouts in the order tried: the editor-layout map first, then the
+# Goto80 compact runtime encoding the editor-layout map can't read.
+_REPLAY_STRATEGIES = (
+    Strategy("editor", STATIC, lambda image, _: _sid_format.depack_replay(image)),
+    Strategy("goto80", STATIC, lambda image, _: decode_goto80_replay(image)),
+)
 
 
 class DefmonSong:
@@ -314,10 +323,8 @@ class DefmonSong:
     @classmethod
     def _from_replay(cls, image, container: bytes) -> "DefmonSong":
         """Re-expand a defMON replay image into the editor-layout song model."""
-        snapshot, layout = _sid_format.depack_replay(image), "editor"
-        if snapshot is None:
-            # Goto80 fallback: the older compact-runtime encoding the editor-layout map can't.
-            snapshot, layout = decode_goto80_replay(image), "goto80"
+        found = locate(image, _REPLAY_STRATEGIES, init=False)
+        snapshot, layout = found.layout, found.strategy
         if snapshot is None:
             if _sid_format.find_signature(image.mem) < 0:
                 raise DefmonParseError(

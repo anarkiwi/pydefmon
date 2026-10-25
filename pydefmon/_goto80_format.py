@@ -50,27 +50,17 @@ from typing import Dict, List, Optional
 from pysidtracker import CodePattern, SidImage, find_code_all, find_code_first
 from pysidtracker import registers as reg
 
+from pydefmon._layout import (
+    LOAD_ADDRESS,
+    SNAPSHOT_SIZE,
+    relocate_sidtab_row,
+    store_pattern,
+)
 from pydefmon._sid_format import (
     _has_pattern_data,
     _referenced_patterns,
     find_signature,
 )
-
-LOAD_ADDRESS = 0x1800
-SNAPSHOT_END = 0x7167
-SNAPSHOT_SIZE = SNAPSHOT_END - LOAD_ADDRESS  # 22887
-
-_PATTERN_BANK = 0x1F00
-_PATTERN_STRIDE = 0x80
-_STEPS_PER_PATTERN = 32
-_SIDTAB_BANK = 0x5F00
-_SIDTAB_ROW_STRIDE = 15
-
-_FLAG_ALT = 0x80
-_FLAG_GATE_A = 0x40
-_FLAG_GATE_B = 0x20
-_FLAG_GATE_N = 0x10
-
 
 # Track-stepper idiom (per-voice sidTAB cascade fetch), e.g. defMON-Goto80
 # ``$8ACF``: LDA sidtab_hi,Y / BNE / LDA sidtab_lo,Y / TAY / LDA sidtab_hi,Y /
@@ -161,27 +151,7 @@ def _reconstruct(mem: bytes, tb: Dict[str, int]) -> bytearray:
         addr = rd(tb["patptr_lo"] + pat) | (rd(tb["patptr_hi"] + pat) << 8)
         if addr == 0:
             continue
-        p = addr
-        for step in range(_STEPS_PER_PATTERN):
-            control = rd(p)
-            p = (p + 1) & 0xFFFF
-            slot_a = slot_b = note = 0
-            if control & _FLAG_GATE_A:
-                slot_a = rd(p)
-                p = (p + 1) & 0xFFFF
-            if control & _FLAG_GATE_B:
-                slot_b = rd(p)
-                p = (p + 1) & 0xFFFF
-            if control & _FLAG_GATE_N:
-                note = rd(p)
-                p = (p + 1) & 0xFFFF
-            d = _PATTERN_BANK + pat * _PATTERN_STRIDE + step * 4 - LOAD_ADDRESS
-            snap[d] = control
-            snap[d + 1] = slot_a
-            snap[d + 2] = slot_b
-            snap[d + 3] = note
-            if control & _FLAG_ALT:
-                break
+        store_pattern(snap, rd, pat, addr)
 
     # sidTAB rows: relocate the variable-length bitmask body into the $5F00
     # bank and rewrite the runtime pointer pair + DL byte. hi == 0 => JP row
@@ -195,9 +165,7 @@ def _reconstruct(mem: bytes, tb: Dict[str, int]) -> bytearray:
             w(0x1800 + y, lo)
             continue
         src = lo | (hi << 8)
-        dst = _SIDTAB_BANK + y * _SIDTAB_ROW_STRIDE
-        for k in range(_SIDTAB_ROW_STRIDE):
-            snap[dst + k - LOAD_ADDRESS] = rd(src + k)
+        dst = relocate_sidtab_row(snap, rd, y, src)
         w(0x1800 + y, dst & 0xFF)
         w(0x1900 + y, (dst >> 8) & 0xFF)
         w(0x1E00 + y, dl)

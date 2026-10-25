@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydefmon"
-version = "0.10.3"
+version = "0.10.4"
 description = "Python implementation of the defMON C64 tracker's file format and register-level player."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["pysidtracker>=0.36.0"]
+dependencies = ["pysidtracker>=0.38.0"]
 
 [project.optional-dependencies]
 # Decompress the sidtrace oracle's zstd CSV traces (oracle comparison tests).

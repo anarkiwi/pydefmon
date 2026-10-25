@@ -72,7 +72,8 @@ target-version = ["py311"]
 # C0301/C0302 line-too-long / too-many-lines: long disassembly comments
 #   document the underlying 6502; reformatting them would lose alignment.
 # C0325 superfluous-parens: project style prefers `if not (x & 0x80)`.
-# R09xx too-many-*: the player IRQ legitimately has many branches.
+# R09xx too-many-*: the 6502 disassembly decoders and bitmask parsers
+#   legitimately have many branches.
 disable = [
     "C0103",
     "C0114", "C0115", "C0116",

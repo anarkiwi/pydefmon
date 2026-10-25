@@ -24,7 +24,7 @@ and rejected with a specific `DefmonParseError` (see
 composer's editor form, the export PRGs and `.sid` the packer's canonical form
 — the same tune, not the same bytes — compare them with `DefmonSong.diff` (not
 a raw `snapshot ==`). The relocatable player is located by signature; container
-headers are not trusted; `DefmonPlayer` plays any of the three containers.
+headers are not trusted; `DefmonPlayer` plays PSID/RSID replays and export PRGs, and rejects `.prg` workfiles (use `DefmonSong` to read those).
 
 ## Install
 

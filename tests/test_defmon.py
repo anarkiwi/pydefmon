@@ -658,6 +658,47 @@ class TestDefmonSongSidtabRowCompanions(unittest.TestCase):
         self.assertEqual(row.dl, 0x05)
 
 
+class TestSidcallFrames(unittest.TestCase):
+    """``DefmonSong.sidcall_frames`` walks the sidTAB cascade from a row."""
+
+    def test_blank_song_has_no_frames(self):
+        self.assertEqual(DefmonSong().sidcall_frames(0), [])
+
+    def test_stops_at_freeze_row(self):
+        song = DefmonSong()
+        for row, dl in ((2, 0x01), (3, 0x02), (4, 0x80)):
+            song.set_jp(row)
+            song.set_dl(row, dl)
+        frames = song.sidcall_frames(2)
+        self.assertEqual([f.row_index for f in frames], [2, 3, 4])
+        self.assertEqual([f.hold_frames for f in frames], [2, 3, None])
+        self.assertTrue(frames[-1].freezes)
+        self.assertEqual(frames[0].sidtab_row.dl, 0x01)
+
+    def test_jump_row_loops_back(self):
+        song = DefmonSong()
+        for row in (2, 3):
+            song.set_jp(row)
+        song.set_jp(4, target=2)
+        frames = song.sidcall_frames(2)
+        self.assertEqual([f.row_index for f in frames], [2, 3])
+        self.assertIsNone(frames[0].loops_to)
+        self.assertEqual(frames[1].loops_to, 2)
+
+    def test_start_on_jump_row_follows_target(self):
+        song = DefmonSong()
+        song.set_jp(5)
+        song.set_dl(5, 0x80)
+        song.set_jp(1, target=5)
+        self.assertEqual([f.row_index for f in song.sidcall_frames(1)], [5])
+
+    def test_max_frames_bounds_the_walk(self):
+        song = DefmonSong()
+        for row in range(2, 10):
+            song.set_jp(row)
+        self.assertEqual(len(song.sidcall_frames(2, max_frames=3)), 3)
+
+
 class TestReprAndEquality(unittest.TestCase):
     """Exercises the dunder methods (repr / eq / hash) which are otherwise
     only hit indirectly through assertion error messages."""

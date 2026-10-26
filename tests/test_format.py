@@ -46,6 +46,16 @@ class TestDefmonFormat(unittest.TestCase):
         name, author, released, load, init, play = _metadata(song)
         self.assertEqual((load, init, play), (0x1000, 0x1000, 0x1020))
 
+    def test_metadata_export_prg_uses_located_player(self):
+        song = DefmonSong()
+        song.image_bytes = b"\x01\x08" + b"\x00" * 8
+        with mock.patch(
+            "pydefmon.format._sid_format.prg_replay", return_value=(0x0801, 0x1000)
+        ) as replay:
+            meta = _metadata(song)
+        replay.assert_called_once_with(song.image_bytes)
+        self.assertEqual(meta, ("", "", "", 0x0801, 0x1000, 0x1003))
+
     def test_metadata_workfile_without_header(self):
         song = DefmonSong()  # no container bytes -> no header
         load = song.load_address

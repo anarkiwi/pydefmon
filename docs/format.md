@@ -152,9 +152,11 @@ four Goto80 tunes (`Evil_Wizard_2`, `Rent-A-Cop`, `Rent-A-Cop_Reloaded`,
 defMON data model in a more compact runtime encoding — variable-length
 control-byte pattern streams behind a pattern-pointer pair, plus relocated sidTAB
 bitmask bodies — rather than the absolute-indexed 4-byte-row tables above.
-`pydefmon._goto80_format` locates the engine tables relocation-independently (by
-the build's own track-stepper / orderlist code idioms) and re-expands them into
-the editor-layout snapshot; `from_sid_bytes` uses it as the fallback after the
+`pydefmon._goto80_format` locates the engine tables relocation-independently: a
+`pysidtracker.RoutineChain` follows the player's own `JMP`s from the signature
+(voice 1 → voice 2 → voice 3), then one `SitePattern` finds the orderlist
+(pattern-pointer / arranger fetch) and the track-stepper (sidTAB cascade fetch)
+after it. It re-expands the tables into the editor-layout snapshot; `from_sid_bytes` uses it as the fallback after the
 canonical reconstruction. `tests/test_hvsc_sid_corpus.py` asserts the whole
 corpus recognises and decodes soundly. `tests/test_oracle_hvsc.py`
 (`goto80_rentacop`) compares `DefmonPlayer`'s render against the `sidtrace`

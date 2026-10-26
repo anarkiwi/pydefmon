@@ -44,9 +44,9 @@ address does not matter.
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
-from pysidtracker import CodePattern, SidImage, find_code_all, find_code_first
+from pysidtracker import ChainError, RoutineChain, SidImage, SitePattern
 
 from pydefmon._layout import (
     LOAD_ADDRESS,
@@ -55,71 +55,68 @@ from pydefmon._layout import (
     store_pattern,
 )
 from pydefmon._sid_format import (
+    _SIG_SPEC as SIG_SPEC,
     _has_pattern_data,
     _referenced_patterns,
     find_signature,
 )
 
-# Track-stepper idiom (per-voice sidTAB cascade fetch), e.g. defMON-Goto80
-# ``$8ACF``: LDA sidtab_hi,Y / BNE / LDA sidtab_lo,Y / TAY / LDA sidtab_hi,Y /
-# STA $FC / LDA sidtab_dl,Y. The hi/lo/DL table bases are the abs operands.
-_STEPPER = CodePattern(
-    "B9 {sidtab_hi:w} D0 07 B9 {sidtab_lo:w} A8 B9 ?? ?? 85 FC B9 {sidtab_dl:w}"
+# The player's own control flow, from the signature: the SID-write band of voice 1
+# ends in ``JMP voice2``, voice 2's in ``JMP voice3`` (the two jumps hop over each
+# voice's self-modified operand bytes). The data tables are read further on, so the
+# table scan starts at ``voice3`` rather than anywhere in the image.
+_VOICE2 = (
+    "A2 ?? A9 ?? 8E 09 D4 8D 0A D4 A2 ?? A9 ?? 8E 07 D4 8D 08 D4 "
+    "A2 ?? A0 ?? A9 ?? 49 ?? 8E 0D D4 8C 0C D4 8D 0B D4 4C {voice3:w}"
+)
+_CHAIN = RoutineChain(
+    [
+        ("entry", f"{SIG_SPEC} {{voice2:w}}"),
+        ("voice2", _VOICE2),
+    ]
 )
 
-# Orderlist idiom (per-voice pattern-pointer fetch), e.g. ``$88F8``:
-# LDA patptr_lo,X / STA op / LDA patptr_hi,X. Appears once per voice with the
-# same patptr_lo / patptr_hi bases.
-_PATPTR = CodePattern("BD {patptr_lo:w} 8D ?? ?? BD {patptr_hi:w}")
+# The table sites, one scan. The orderlist (per-voice pattern-pointer and arranger
+# fetch), e.g. ``$88EC``: ``LDY / LDX arr_v0,Y / BPL / LDA arr_v1,Y / TAY / LDX
+# arr_v0,Y`` then, per voice, ``LDA patptr_lo,X / STA op / LDA patptr_hi,X / STA op``
+# with ``LDX arr_v1,Y`` / ``LDX arr_v2,Y`` ahead of voices 1 and 2. Some way on, the
+# track-stepper idiom (per-voice sidTAB cascade fetch), e.g. ``$8ACF``: ``LDA
+# sidtab_hi,Y / BNE / LDA sidtab_lo,Y / TAY / LDA ?,Y / STA $FC / LDA sidtab_dl,Y``.
+_VOICE_PATPTR = "BD {patptr_lo:w} 8D ?? ?? BD {patptr_hi:w} 8D ?? ??"
+_TABLES = SitePattern(
+    "A0 ?? BE {arr_v0:w} 10 07 B9 ?? ?? A8 BE ?? ?? "
+    f"{_VOICE_PATPTR} BE {{arr_v1:w}} {_VOICE_PATPTR} "
+    f"BE {{arr_v2:w}} {_VOICE_PATPTR} "
+    "??{0,1024} "
+    "B9 {sidtab_hi:w} D0 07 B9 {sidtab_lo:w} A8 B9 ?? ?? 85 FC B9 {sidtab_dl:w}",
+    first=True,
+    span="image",
+)
 
-# Per-voice arranger load with jump-skip, e.g. v0 ``$88EC``: LDX arr,Y / BPL.
-_ARR_V0 = CodePattern("BE {arr_v0:w} 10 07")
 
-
-def find_tables(mem: bytes) -> Optional[Dict[str, int]]:
-    """Locate the Goto80 engine's data-table bases in ``mem`` (a 64 KiB
-    image), or ``None`` if the build's idioms are not present."""
-    st = find_code_first(mem, _STEPPER)
-    if st is None:
+def find_tables(image: SidImage, signature: int) -> Optional[Dict[str, int]]:
+    """Locate the Goto80 engine's data-table bases in ``image``, or ``None`` if the
+    build's idioms are not at the places its player code leads to from the
+    signature at ``signature``."""
+    try:
+        found = _CHAIN.discover(image, signature)
+    except ChainError:
         return None
-
-    pp = find_code_first(mem, _PATPTR)
-    if pp is None:
+    hit = _TABLES.find_first(image, start=found["voice3"])
+    if hit is None:
         return None
-    patptr_lo = pp.captures["patptr_lo"]
-    patptr_hi = pp.captures["patptr_hi"]
-
-    # The three per-voice arranger LDX arr,Y loads. V0 is the one followed by
-    # BPL+7 (jump-skip); V1/V2 are the two LDX arr,Y that directly precede a
-    # patptr_lo load (BE aa aa BD patptr_lo).
-    v0 = find_code_first(mem, _ARR_V0)
-    if v0 is None:
-        return None
-    arr_v0 = v0.captures["arr_v0"]
-    lo_b = patptr_lo & 0xFF
-    lo_h = (patptr_lo >> 8) & 0xFF
-    arr_after = f"BE {{arr:w}} BD {lo_b:02X} {lo_h:02X}"
-    # The V0 jump-handler re-loads arr_v0 immediately before a patptr_lo load
-    # too, so drop any arr_v0 hits; the first two distinct remaining bases are
-    # V1 then V2 (their orderlist loads are contiguous BE arr,Y / BD patptr_lo).
-    distinct: List[int] = []
-    for match in find_code_all(mem, arr_after):
-        base = match.captures["arr"]
-        if base != arr_v0 and base not in distinct:
-            distinct.append(base)
-    if len(distinct) < 2:
-        return None
-    arr_v1, arr_v2 = distinct[0], distinct[1]
-
     return {
-        "sidtab_lo": st.captures["sidtab_lo"],
-        "sidtab_hi": st.captures["sidtab_hi"],
-        "sidtab_dl": st.captures["sidtab_dl"],
-        "patptr_lo": patptr_lo,
-        "patptr_hi": patptr_hi,
-        "arr_v0": arr_v0,
-        "arr_v1": arr_v1,
-        "arr_v2": arr_v2,
+        name: hit.captures[name]
+        for name in (
+            "sidtab_lo",
+            "sidtab_hi",
+            "sidtab_dl",
+            "patptr_lo",
+            "patptr_hi",
+            "arr_v0",
+            "arr_v1",
+            "arr_v2",
+        )
     }
 
 
@@ -185,7 +182,7 @@ def decode_replay(image: SidImage, signature: Optional[int] = None) -> Optional[
         signature = find_signature(mem)
     if signature < 0:
         return None
-    tb = find_tables(mem)
+    tb = find_tables(image, signature)
     if tb is None:
         return None
     snap = _reconstruct(mem, tb)

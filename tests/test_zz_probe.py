@@ -29,6 +29,17 @@ class TestProbe(unittest.TestCase):
                 f"lo={c['sidtab_lo']:04X} hi={c['sidtab_hi']:04X} dl={c['sidtab_dl']:04X} "
                 f"hit={hit.addr:04X} sig={sig:04X}"
             )
+        from tests._support import editor_image_bytes, fixture_path
+
+        try:
+            ed = editor_image_bytes()
+            out.append(f"EDITOR {None if ed is None else len(ed)}")
+        except Exception as exc:  # pylint: disable=broad-except
+            out.append(f"EDITOR raised {exc!r}")
+        try:
+            out.append(f"FIXTURE {fixture_path('dansa_in.prg')}")
+        except Exception as exc:  # pylint: disable=broad-except
+            out.append(f"FIXTURE raised {exc!r}")
         self.fail("\n" + "\n".join(out))
 
 

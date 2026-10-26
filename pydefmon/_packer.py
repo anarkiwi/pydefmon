@@ -8,7 +8,10 @@ V2014xxxx..V20201008 (source: ``undefmon/defmon.asm``).
 
 from __future__ import annotations
 
-from pysidtracker.emu import run_to_rts, wire_mpu
+from pysidtracker import SidImage
+from pysidtracker.emu import run_to_rts, set_iomap
+from pysidtracker.header import write_psid
+from pysidtracker.oracle import SID_VOLUME, boot_flat
 
 from pydefmon._layout import LOAD_ADDRESS
 from pydefmon._sid_format import find_signature
@@ -28,15 +31,35 @@ SONG_END_HI = 0xCE7E
 LOAD_END_LO = 0x00AE
 LOAD_END_HI = 0x00AF
 _RAM_SIZE = 0x10000
+#: The C64 memory-bank port.
+BANK_PORT = 0x01
 _MAX_CALL_CYCLES = 30_000_000
+#: PSID flags selecting the 6581 (bits 4-5 = 1), the packer's SID model.
+_SID_6581 = 0x10
+
+
+def _editor_boot_image(mem: bytearray, entry: int) -> SidImage:
+    """``mem`` (the 64 KiB editor RAM) as a flat ``SidImage`` whose ``init`` is ``entry``.
+
+    The header only has to carry the init address and a 6581 (the packer's SID
+    model); the tune image is the whole of RAM, loaded at ``$0000``.
+    """
+    stub = write_psid(
+        load=PRG_LOAD, init=entry, play=entry, image=bytes(2), flags=_SID_6581
+    )
+    return SidImage(
+        mem, 0, _RAM_SIZE, SidImage.from_bytes(stub).header, bytes(mem), b""
+    )
 
 
 def place_and_run(editor_image: bytes, payload: bytes, *entry_points: int) -> bytearray:
     """Place ``payload`` at ``$1800``, set the LOAD-end word, run defMON entries.
 
-    Wires pysidtracker's 6502 (NMOS illegal opcodes), runs each ``entry_point``
-    in order on a copy of the editor image, and returns the (mutated) image so
-    the caller can read defMON's output words.
+    Boots pysidtracker's flat 6502 (NMOS illegal opcodes) on a copy of the editor
+    image with :func:`~pysidtracker.oracle.boot_flat` -- the first entry point runs
+    as its ``init`` -- then runs each further ``entry_point`` in order with
+    :func:`~pysidtracker.emu.run_to_rts`, and returns the (mutated) image so the
+    caller can read defMON's output words.
     """
     if len(editor_image) != _RAM_SIZE:
         raise ValueError(
@@ -45,15 +68,30 @@ def place_and_run(editor_image: bytes, payload: bytes, *entry_points: int) -> by
         )
     if not payload:
         raise ValueError("payload is empty")
+    if not entry_points:
+        return bytearray(editor_image)
     mem = bytearray(editor_image)
-    mem[PRG_LOAD : PRG_LOAD + len(payload)] = payload
-    end = PRG_LOAD + len(payload)
-    mem[LOAD_END_LO] = end & 0xFF
-    mem[LOAD_END_HI] = end >> 8
-    mpu, _obs = wire_mpu(mem, illegal_opcodes=True, sid_model="6581")
-    for entry in entry_points:
-        run_to_rts(mpu, mem, entry, 0, _MAX_CALL_CYCLES)
-    return mem
+    bank, volume = mem[BANK_PORT], mem[SID_VOLUME]
+
+    def place(mpu, subject) -> None:
+        # boot_flat boots like the PSID driver (ROM banked in, volume up); defMON's own
+        # editor state ($01, $D418) is what the SAVE pipeline expects, so put it back.
+        set_iomap(mpu, bank)
+        subject[SID_VOLUME] = volume
+        subject[PRG_LOAD : PRG_LOAD + len(payload)] = payload
+        end = PRG_LOAD + len(payload)
+        subject[LOAD_END_LO] = end & 0xFF
+        subject[LOAD_END_HI] = end >> 8
+
+    subject, mpu, bus, _play = boot_flat(
+        _editor_boot_image(mem, entry_points[0]),
+        max_cycles=_MAX_CALL_CYCLES,
+        setup=place,
+    )
+    set_iomap(mpu, bank)  # boot_flat banked in the play address's ROM
+    for entry in entry_points[1:]:
+        run_to_rts(mpu, bus, entry, 0, _MAX_CALL_CYCLES)
+    return subject
 
 
 def pack(editor_image: bytes, worktune_prg: bytes) -> tuple[bytes, int]:

@@ -67,10 +67,13 @@ pysidtracker wav    path/to/tune.sid /tmp/tune.wav  --seconds 60 --model 8580
 [`scripts/oracle_hvsc.py`](../scripts/oracle_hvsc.py) plugs `DefmonPlayer` into
 the [`pysidtracker.survey`](https://github.com/anarkiwi/pysidtracker/blob/main/docs/survey.md)
 whole-song comparison against the `sidtrace` oracle (Docker), over every subtune
-of every HVSC defMON tune. Its `info` reports the decoded replay `layout`
-(`editor` / `goto80`), `rsid`, the play `trigger` (`pal_video` / `ntsc_video` /
-`cia_timer`), `speed` (play calls per PAL frame) and `dynamic` (variable timer),
-the last four from `pysidtracker.cadence.cadence_info`.
+of every HVSC defMON tune. Its `info` is the song's
+[`variant`](format.md#variant-facets) facets (`container`, `variant` -- the decoded
+replay layout, `editor` / `goto80` --, `signature`, `data_base` and the post-LOAD
+`gate_*` bytes, each with a `<facet>.src` provenance string), plus `rsid`, the play
+`trigger` (`pal_video` / `ntsc_video` / `cia_timer`), `speed` (play calls per PAL
+frame) and `dynamic` (variable timer), the last four from
+`pysidtracker.cadence.cadence_info`. `format:defmon` carries the same facets.
 
 ```bash
 pip install "pysidtracker[survey]>=0.36.0"

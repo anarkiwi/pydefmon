@@ -9,12 +9,13 @@ wav`` tool recognises a defMON replay by content and renders it through
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from pysidtracker import SidFormat, SidImage
 
 from pydefmon import _sid_format
 from pydefmon.defmon import DefmonSidParser, DefmonSong
+from pydefmon._variant import detect_variant
 from pydefmon.defmon_player import DefmonPlayer
 
 
@@ -51,6 +52,11 @@ def _metadata(song: DefmonSong) -> Sequence:
     return ("", "", "", load, load, load)
 
 
+def _facet_sites(song: DefmonSong) -> Mapping[int, str]:
+    """``{addr: facet}``: the code address the player signature was detected at."""
+    return {} if song.signature is None else {song.signature: "signature"}
+
+
 def defmon_format() -> SidFormat:
     """The :class:`~pysidtracker.SidFormat` describing defMON for the generic CLI."""
     return SidFormat(
@@ -58,5 +64,7 @@ def defmon_format() -> SidFormat:
         parser=DefmonSidParser(),
         player=lambda song: DefmonPlayer(song.image_bytes, subtune=song.subtune),
         metadata=_metadata,
+        variant=detect_variant,
+        facet_sites=_facet_sites,
         describe=lambda song: [f"snapshot: {len(song.snapshot)} bytes"],
     )

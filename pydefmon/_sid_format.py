@@ -189,18 +189,22 @@ def _has_pattern_data(snap: bytearray) -> bool:
     return False
 
 
-def depack_replay(image: SidImage) -> Optional[bytes]:
+def depack_replay(image: SidImage, signature: Optional[int] = None) -> Optional[bytes]:
     """Reconstruct the editor-layout snapshot from a defMON ``.sid`` replay.
 
     Returns the 22887-byte ``$1800..$7166`` runtime RAM image, or ``None``
     if ``image`` is not a recognised defMON replay or its data layout cannot
     be mapped to the editor layout (a small number of HVSC tunes use a newer
     packer variant with a compact / indirect data layout).
+
+    ``signature`` is the player-signature address when the caller already
+    located it (:func:`find_signature`); otherwise it is scanned for here.
     """
-    match = find_code_first(image, _SIG_PATTERN, start=0)
-    if match is None:
+    if signature is None:
+        signature = find_signature(image.mem)
+    if signature < 0:
         return None
-    data_base = match.addr + _DATA_BASE_FROM_SIGNATURE
+    data_base = signature + _DATA_BASE_FROM_SIGNATURE
     snap = _reconstruct(image.mem, data_base)
     if not _has_pattern_data(snap):
         return None

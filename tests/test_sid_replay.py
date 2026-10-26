@@ -153,6 +153,32 @@ class TestSidReplayReader(unittest.TestCase):
         detection = parser.detect(raw)
         self.assertEqual(detection.anchor, SIG_ADDR)
 
+    def test_variant_facets_of_a_replay(self):
+        song = DefmonSong.from_sid_bytes(_synthetic_replay())
+        variant = song.variant
+        self.assertEqual(variant["container"], "psid")
+        self.assertEqual(variant["variant"], "editor")
+        self.assertEqual(variant["signature"], SIG_ADDR)
+        self.assertEqual(variant["data_base"], DATA_BASE)
+        self.assertEqual(str(variant.source("signature")), "detected@$1022")
+        info = variant.as_info()
+        self.assertEqual(info["variant.src"], "inferred(layout strategy static)")
+        self.assertEqual(song.replay_layout, "editor")
+
+    def test_variant_facets_of_a_scratch_song_default(self):
+        variant = DefmonSong().variant
+        for facet in ("container", "variant", "signature", "data_base"):
+            self.assertIsNone(variant[facet])
+            self.assertEqual(str(variant.source(facet)), "default")
+        self.assertEqual(DefmonSong().replay_layout, "")
+
+    def test_rejection_log_names_each_strategy(self):
+        raw = _synthetic_replay(with_pattern=False)
+        with self.assertRaises(DefmonError) as ctx:
+            DefmonSong.from_sid_bytes(raw)
+        self.assertIn(f"editor[{SIG_ADDR}]", str(ctx.exception))
+        self.assertIn(f"goto80[{SIG_ADDR}]", str(ctx.exception))
+
     def test_variant_replay_raises_specific_error(self):
         raw = _synthetic_replay(with_pattern=False)
         with self.assertRaises(DefmonError) as ctx:

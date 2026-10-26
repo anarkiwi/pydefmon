@@ -41,8 +41,11 @@ def test_render_matches_player_and_reports_variant(relpath, layout):
     assert grid.shape == (60, 25)
     np.testing.assert_array_equal(grid, DefmonPlayer(data, subtune=0).render_grid(60))
     assert json.loads(json.dumps(info)) == info
-    assert info == {
-        "layout": layout,
+    assert info["variant"] == layout
+    assert info["variant.src"] == "inferred(layout strategy static)"
+    assert info["container"] == "psid"
+    assert info["signature.src"].startswith("detected@$")
+    assert {k: info[k] for k in ("rsid", "trigger", "speed", "dynamic")} == {
         "rsid": False,
         "trigger": "pal_video",
         "speed": 1,

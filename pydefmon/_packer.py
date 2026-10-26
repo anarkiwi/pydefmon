@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pysidtracker.emu import run_to_rts, wire_mpu
 
+from pydefmon._layout import LOAD_ADDRESS
 from pydefmon._sid_format import find_signature
 
 #: Replay base: the packed image starts at the player ($1000..$17FF).
@@ -17,7 +18,7 @@ REPLAY_BASE = 0x1000
 INIT_ADDRESS = REPLAY_BASE
 PLAY_ADDRESS = 0x1003
 #: defMON editor workfile load address.
-PRG_LOAD = 0x1800
+PRG_LOAD = LOAD_ADDRESS
 DECODE_ENTRY = 0xCEB2  # decoder_load_setup
 PACK_ENTRY = 0xD02C  # save_encode_orchestrator
 #: Packed-image end (exclusive), set by the pack routine.

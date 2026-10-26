@@ -171,16 +171,19 @@ def _reconstruct(mem: bytes, tb: Dict[str, int]) -> bytearray:
     return snap
 
 
-def decode_replay(image: SidImage) -> Optional[bytes]:
+def decode_replay(image: SidImage, signature: Optional[int] = None) -> Optional[bytes]:
     """Reconstruct the editor-layout snapshot from a Goto80 compact replay.
 
     Returns the 22887-byte ``$1800..$7166`` runtime RAM image, or ``None``
     if ``image`` is not a recognised Goto80-encoded defMON replay (no
     player signature, or the compact engine idioms are absent, or no
-    arranger-referenced pattern produced a body).
+    arranger-referenced pattern produced a body). ``signature`` is the
+    player-signature address when the caller already located it.
     """
     mem = image.mem
-    if find_signature(mem) < 0:
+    if signature is None:
+        signature = find_signature(mem)
+    if signature < 0:
         return None
     tb = find_tables(mem)
     if tb is None:

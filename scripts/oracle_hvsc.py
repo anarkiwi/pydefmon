@@ -6,17 +6,16 @@
 
 import numpy as np
 
-from pysidtracker.cadence import cadence_info
-
 from pydefmon import DefmonPlayer, DefmonSong
+from pydefmon.format import defmon_format
 
 PLAYER = "^defmon$"
 
 
 def render(data, song, nframes):
-    """Render 1-based ``song`` of a defMON ``.sid`` and the replay variant it decoded."""
+    """Render 1-based ``song`` of a defMON ``.sid`` and its variant facets."""
     tune = DefmonSong.from_sid_bytes(data)
-    info = {"layout": tune.replay_layout, **cadence_info(data, song)}
+    info = defmon_format().info(tune, data, song)
     return (
         np.asarray(DefmonPlayer(data, subtune=song - 1).render_grid(nframes), np.int16),
         info,

@@ -70,6 +70,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pysidtracker import BaseSidParser, SidError, SidImage, SidParseError, parse_prg
+from pysidtracker.facets import Entry, Variant
 from pysidtracker.header import write_psid
 from pysidtracker.locate import STATIC, Strategy, locate
 from pysidtracker.registers import PAL_CLOCK_HZ
@@ -77,21 +78,25 @@ from pysidtracker.registers import PAL_CLOCK_HZ
 from pydefmon import _packer
 from pydefmon._load_format import (
     CodecError,
-    LOAD_ADDR,
     decode_load_stream,
     encode_worktune,
 )
 from pydefmon import _sid_format
 from pydefmon._goto80_format import decode_replay as decode_goto80_replay
-
-LOAD_ADDRESS = LOAD_ADDR
-STANDARD_SNAPSHOT_END = 0x7167
-STANDARD_SNAPSHOT_SIZE = STANDARD_SNAPSHOT_END - LOAD_ADDRESS  # 22887
+from pydefmon._layout import (
+    GATE_PAT_BASE_ADDR,
+    GATE_PATTERN_MARKER_ADDR,
+    GATE_SONG_POSITION_ADDR,
+    LOAD_ADDRESS,
+    SNAPSHOT_END as STANDARD_SNAPSHOT_END,
+    SNAPSHOT_SIZE as STANDARD_SNAPSHOT_SIZE,  # 22887
+)
+from pydefmon._variant import detect_variant
 
 # Post-LOAD pass gates (select $CF42/$D004/$CFB8 when non-zero; see unpacked_snapshot)
-GATE_SONG_POSITION = 0x715E - LOAD_ADDRESS
-GATE_PAT_BASE = 0x715F - LOAD_ADDRESS
-GATE_PATTERN_MARKER = 0x7162 - LOAD_ADDRESS
+GATE_SONG_POSITION = GATE_SONG_POSITION_ADDR - LOAD_ADDRESS
+GATE_PAT_BASE = GATE_PAT_BASE_ADDR - LOAD_ADDRESS
+GATE_PATTERN_MARKER = GATE_PATTERN_MARKER_ADDR - LOAD_ADDRESS
 
 # Runtime-state page ($7100..$7166) per-tune playback fields, snapshot offsets.
 CIA2_TIMER_LO = 0x715A - LOAD_ADDRESS  # CIA2 Timer-A reload, lo (per-NMI tempo)
@@ -188,12 +193,28 @@ class DefmonParseError(DefmonError, SidParseError):
     """Raised when a file does not look like a defMON tune, or cannot be decoded."""
 
 
-# Replay layouts in the order tried: the editor-layout map first, then the
-# Goto80 compact runtime encoding the editor-layout map can't read.
-_REPLAY_STRATEGIES = (
-    Strategy("editor", STATIC, lambda image, _: _sid_format.depack_replay(image)),
-    Strategy("goto80", STATIC, lambda image, _: decode_goto80_replay(image)),
-)
+def _replay_strategies(sites: tuple) -> tuple:
+    """Replay layouts in the order tried: the editor-layout map first, then the
+    Goto80 compact runtime encoding the editor-layout map can't read. Both
+    decode from the one signature ``sites`` already scanned for."""
+
+    def at_sites(_image):
+        return sites
+
+    return (
+        Strategy(
+            "editor",
+            STATIC,
+            _sid_format.depack_replay,
+            candidates=at_sites,
+        ),
+        Strategy(
+            "goto80",
+            STATIC,
+            decode_goto80_replay,
+            candidates=at_sites,
+        ),
+    )
 
 
 class DefmonSong:
@@ -235,7 +256,10 @@ class DefmonSong:
         # A replay carries the player, so its play-routine cadence can be
         # derived by tracing init; a workfile cannot.
         self.image_bytes: bytes = b""
-        self.replay_layout: str = ""
+        # Replay provenance: where the player signature sits and the layout
+        # strategy that decoded it (``None`` for a workfile / from-scratch song).
+        self.signature: "int | None" = None
+        self.layout_entry: Entry | None = None
         # The 0-based subtune a replay of ``image_bytes`` plays (None: its start song).
         self.subtune: "int | None" = None
 
@@ -323,20 +347,20 @@ class DefmonSong:
     @classmethod
     def _from_replay(cls, image, container: bytes) -> "DefmonSong":
         """Re-expand a defMON replay image into the editor-layout song model."""
-        found = locate(image, _REPLAY_STRATEGIES, init=False)
-        snapshot, layout = found.layout, found.strategy
-        if snapshot is None:
-            if _sid_format.find_signature(image.mem) < 0:
-                raise DefmonParseError(
-                    "not a defMON replay (player signature not found)"
-                )
+        signature = _sid_format.find_signature(image.mem)
+        if signature < 0:
+            raise DefmonParseError("not a defMON replay (player signature not found)")
+        found = locate(image, _replay_strategies((signature,)), init=False)
+        if not found.ok:
             raise DefmonParseError(
                 "unrecognised defMON replay data layout "
-                "(compact/indirect packer variant not supported)"
+                "(compact/indirect packer variant not supported): "
+                + found.describe().replace("\n", "; ")
             )
-        song = cls(snapshot)
+        song = cls(found.layout)
         song.image_bytes = container
-        song.replay_layout = layout
+        song.signature = signature
+        song.layout_entry = found.variant
         return song
 
     # ---- serialization ----
@@ -408,6 +432,18 @@ class DefmonSong:
     def end_address(self) -> int:
         """Address one past the last snapshot byte at runtime."""
         return LOAD_ADDRESS + len(self.snapshot)
+
+    @property
+    def replay_layout(self) -> str:
+        """The replay layout strategy that decoded this song (``"editor"`` /
+        ``"goto80"``), or ``""`` for a workfile / from-scratch song."""
+        return self.layout_entry.value if self.layout_entry else ""
+
+    @property
+    def variant(self) -> Variant:
+        """The song's detected facets (container, replay layout, player signature
+        and data base, post-LOAD gates), each with its source."""
+        return detect_variant(self)
 
     @property
     def form(self) -> str:

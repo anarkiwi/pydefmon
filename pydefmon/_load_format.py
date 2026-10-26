@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from pysidtracker import SidError
 
-LOAD_ADDR = 0x1800
+from pydefmon._layout import LOAD_ADDRESS
+
+LOAD_ADDR = LOAD_ADDRESS
 ESC = 0xFF
 
 

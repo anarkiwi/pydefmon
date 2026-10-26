@@ -161,6 +161,26 @@ corpus recognises and decodes soundly. `tests/test_oracle_hvsc.py`
 `sidplayfp` oracle, but `DefmonPlayer` runs the tune's own 6502 code, so the
 decode itself is not oracle-verified.
 
+### Variant facets
+
+`DefmonSong.variant` is a `pysidtracker` `Variant` (`pydefmon._variant`): for each
+facet a value and where it came from (`detected@$addr`, `inferred(...)` or
+`default`). `Variant.as_info()` flattens it to `<facet>` / `<facet>.src` keys, which
+the survey `info` and `format:defmon` report.
+
+| facet | kind | value |
+|---|---|---|
+| `container` | layout | `psid` / `rsid` / `prg-raw` (`$1000`) / `prg-executable` (`$0801`) / `prg-workfile` (`$1800`) / `prg` |
+| `variant` | layout | the `locate()` strategy that decoded a replay: `editor` or `goto80` (`DefmonSong.replay_layout`) |
+| `signature` | layout | address of the player's SID-write signature |
+| `data_base` | layout | runtime data base, `signature + $7DE` |
+| `gate_song_position`, `gate_pat_base`, `gate_pattern_marker` | init | the post-LOAD pass gate bytes (`$715E` / `$715F` / `$7162`) |
+
+A workfile or from-scratch song has no replay, so `variant`, `signature` and
+`data_base` take their default (`None`). Both replay strategies decode from the one
+signature scan; when none accepts it, `DefmonParseError` carries the full
+`locate()` rejection log.
+
 ### Prehistoric 2008 builds (raw `$1700` worktunes)
 
 The 2008 builds predate the `$D6C9` worktune codec: their editor worktunes are

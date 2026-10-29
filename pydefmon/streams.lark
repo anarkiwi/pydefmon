@@ -1,4 +1,4 @@
-// defMON pattern streams as the player walks them, one latin-1 character per
+// defMON pattern streams and sidTAB rows as the player walks them, one latin-1 character per
 // byte (pysidtracker.ByteGrammar). A step's flag byte carries ALT ($80), the
 // gates a ($40), b ($20) and n ($10) and the duration nibble; a stream ends
 // after its ALT step, or after the 32 steps a pattern holds.
@@ -43,3 +43,27 @@ AA: /[\xc0-\xcf]/
 AAN: /[\xd0-\xdf]/
 AAB: /[\xe0-\xef]/
 AABN: /[\xf0-\xff]/
+
+// row: a sidTAB row as the cascade applies it. Each bitmap's set bits select
+// the column values after it (the postlexer splices a T_* tag before each);
+// bits the player does not test select nothing, and bytes after are padding.
+row: low high _TAIL?
+low: LOWMAP wgh? wgl? ad? sr? tr? af? pw?
+high: HIGHMAP ps? re? fv? cp? acid?
+wgh: T_WGH BYTE -> column
+wgl: T_WGL BYTE -> column
+ad: T_AD BYTE -> column
+sr: T_SR BYTE -> column
+tr: T_TR BYTE -> column
+af: T_AF BYTE -> column
+pw: T_PW BYTE -> column
+ps: T_PS BYTE -> column
+re: T_RE BYTE -> column
+fv: T_FV BYTE -> column
+cp: T_CP BYTE -> column
+acid: T_ACID BYTE BYTE -> column
+
+LOWMAP: /[\x00-\xff]/
+HIGHMAP: /[\x00-\xff]/
+
+%declare T_WGH T_WGL T_AD T_SR T_TR T_AF T_PW T_PS T_RE T_FV T_CP T_ACID

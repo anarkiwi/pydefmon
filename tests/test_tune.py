@@ -369,7 +369,7 @@ class TestWrite(unittest.TestCase):
         self._round(tune)
 
     def test_layout_overflow(self):
-        with self.assertRaisesRegex(DefmonError, "sidTAB slots"):
+        with self.assertRaisesRegex(DefmonError, "table slots"):
             _layout({0x100 + y: Row() for y in range(0x101)})
 
     def test_encode_errors(self):

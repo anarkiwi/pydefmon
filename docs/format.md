@@ -143,8 +143,9 @@ length, tightly packed) addressed through pointer tables. The reader
   that many bytes (`$11BD: TYA / CLC / ADC $1186 / STA $1186`), so bodies pack
   back-to-back with no fixed stride. Both this stream and the editor's fixed
   4-byte one are parsed by the byte grammar
-  [`pydefmon/patterns.lark`](../pydefmon/patterns.lark) (rules `packed` and
-  `editor`, through `pysidtracker.ByteGrammar`).
+  [`pydefmon/streams.lark`](../pydefmon/streams.lark) (rules `packed` and
+  `editor`, through `pysidtracker.ByteGrammar`), which also parses sidTAB rows
+  (rule `row`).
 * `DB+$300` / `$400` / `$500` — V1/V2/V3 arrangers (verbatim).
 * `DB+$600` — per-sidTAB-row DL bytes (verbatim).
 

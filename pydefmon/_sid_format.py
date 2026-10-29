@@ -120,17 +120,15 @@ def prg_replay(raw: bytes) -> Optional[Tuple[int, int]]:
     return load, load + sig - _SIGNATURE_FROM_PLAYER_BASE
 
 
-def _reconstruct(mem, data_base: int) -> bytearray:
+def _reconstruct(image: SidImage, data_base: int) -> bytearray:
     """Re-expand a packed replay's data into the editor-layout snapshot."""
     delta = data_base - LOAD_ADDRESS
     snap = bytearray(SNAPSHOT_SIZE)
+    mem = image.mem
 
     def src(addr: int) -> int:  # canonical editor addr -> relocated read
         a = addr + delta
         return mem[a] if 0 <= a < 0x10000 else 0
-
-    def absrd(addr: int) -> int:  # absolute (already relocated) read
-        return mem[addr] if 0 <= addr < 0x10000 else 0
 
     # Low editor regions ($1800..$1EFF: pointer arrays, arrangers, DL)
     # carry over verbatim; the sidTAB pointer arrays are rewritten below.
@@ -139,8 +137,7 @@ def _reconstruct(mem, data_base: int) -> bytearray:
 
     # Pattern bodies: $1A00/$1A80 holds each body's absolute address.
     for n in range(128):
-        start = src(0x1A00 + n) | (src(0x1A80 + n) << 8)
-        store_pattern(snap, absrd, n, start)
+        store_pattern(snap, image, n, image.ptr(0x1A00 + delta, 0x1A80 + delta, n))
 
     # sidTAB rows: $1800/$1900 pointer pair. Non-zero hi => absolute address
     # of the row's compacted body; re-expand into fixed $5F00 slots and mark
@@ -157,7 +154,7 @@ def _reconstruct(mem, data_base: int) -> bytearray:
             snap[off_lo] = lo
             continue
         row_addr = lo | (hi << 8)
-        relocate_sidtab_row(snap, absrd, y, row_addr)
+        relocate_sidtab_row(snap, image, y, row_addr)
         snap[off_hi] = 0x11
         snap[off_lo] = 0
 
@@ -205,7 +202,7 @@ def depack_replay(image: SidImage, signature: Optional[int] = None) -> Optional[
     if signature < 0:
         return None
     data_base = signature + _DATA_BASE_FROM_SIGNATURE
-    snap = _reconstruct(image.mem, data_base)
+    snap = _reconstruct(image, data_base)
     if not _has_pattern_data(snap):
         return None
     return bytes(snap)

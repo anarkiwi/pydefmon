@@ -141,7 +141,10 @@ length, tightly packed) addressed through pointer tables. The reader
   at the `$80` ALT step or after 32 steps. The player walks a record with `Y`
   (`Y=1`, `INY` per set gate) and then advances its stream pointer by exactly
   that many bytes (`$11BD: TYA / CLC / ADC $1186 / STA $1186`), so bodies pack
-  back-to-back with no fixed stride.
+  back-to-back with no fixed stride. Both this stream and the editor's fixed
+  4-byte one are parsed by the byte grammar
+  [`pydefmon/patterns.lark`](../pydefmon/patterns.lark) (rules `packed` and
+  `editor`, through `pysidtracker.ByteGrammar`).
 * `DB+$300` / `$400` / `$500` — V1/V2/V3 arrangers (verbatim).
 * `DB+$600` — per-sidTAB-row DL bytes (verbatim).
 

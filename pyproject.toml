@@ -25,7 +25,7 @@ classifiers = [
     "Topic :: Multimedia :: Sound/Audio",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["lark>=1.2", "pysidtracker>=0.38.0"]
+dependencies = ["lark>=1.2", "pysidtracker>=0.39.0"]
 
 [project.optional-dependencies]
 # Decompress the sidtrace oracle's zstd CSV traces (oracle comparison tests).

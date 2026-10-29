@@ -120,7 +120,7 @@ def find_tables(image: SidImage, signature: int) -> Optional[Dict[str, int]]:
     }
 
 
-def _reconstruct(mem: bytes, tb: Dict[str, int]) -> bytearray:
+def _reconstruct(image: SidImage, tb: Dict[str, int]) -> bytearray:
     """Re-expand the Goto80 compact runtime data into the editor snapshot."""
     snap = bytearray(SNAPSHOT_SIZE)
 
@@ -128,7 +128,7 @@ def _reconstruct(mem: bytes, tb: Dict[str, int]) -> bytearray:
         snap[addr - LOAD_ADDRESS] = val & 0xFF
 
     def rd(addr: int) -> int:
-        return mem[addr & 0xFFFF]
+        return image.mem[addr & 0xFFFF]
 
     # Arrangers -> $1B00 / $1C00 / $1D00 (copied verbatim; the player walks
     # them only up to the $FF jump row, so trailing bytes are harmless).
@@ -143,10 +143,9 @@ def _reconstruct(mem: bytes, tb: Dict[str, int]) -> bytearray:
     # Pattern streams -> fixed $1F00 4-byte editor steps. Only patterns
     # referenced by an arranger are materialised.
     for pat in _referenced_patterns(snap):
-        addr = rd(tb["patptr_lo"] + pat) | (rd(tb["patptr_hi"] + pat) << 8)
-        if addr == 0:
-            continue
-        store_pattern(snap, rd, pat, addr)
+        addr = image.ptr(tb["patptr_lo"], tb["patptr_hi"], pat)
+        if addr:
+            store_pattern(snap, image, pat, addr)
 
     # sidTAB rows: relocate the variable-length bitmask body into the $5F00
     # bank and rewrite the runtime pointer pair + DL byte. hi == 0 => JP row
@@ -160,7 +159,7 @@ def _reconstruct(mem: bytes, tb: Dict[str, int]) -> bytearray:
             w(0x1800 + y, lo)
             continue
         src = lo | (hi << 8)
-        dst = relocate_sidtab_row(snap, rd, y, src)
+        dst = relocate_sidtab_row(snap, image, y, src)
         w(0x1800 + y, dst & 0xFF)
         w(0x1900 + y, (dst >> 8) & 0xFF)
         w(0x1E00 + y, dl)
@@ -185,7 +184,7 @@ def decode_replay(image: SidImage, signature: Optional[int] = None) -> Optional[
     tb = find_tables(image, signature)
     if tb is None:
         return None
-    snap = _reconstruct(mem, tb)
+    snap = _reconstruct(image, tb)
     if not _has_pattern_data(snap):
         return None
     return bytes(snap)

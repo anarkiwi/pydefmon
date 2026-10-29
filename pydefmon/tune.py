@@ -30,7 +30,7 @@ from pydefmon._layout import (
     PATTERN_STRIDE,
     SIDTAB_BANK,
     SIDTAB_ROW_STRIDE,
-    STEPS_PER_PATTERN,
+    PATTERN_STREAMS,
 )
 from pydefmon.defmon import STEREO_ENABLE, DefmonError, DefmonSong, SidtabRow
 
@@ -400,8 +400,7 @@ def _decode_pattern(body, resolve) -> tuple[tuple[Event, ...], Optional[int]]:
     """Events up to the ALT step, and when a 33rd step would start (no ALT)."""
     events = []
     at = 0
-    for i in range(STEPS_PER_PATTERN):
-        flag, a, b, note = body[4 * i : 4 * i + 4]
+    for flag, a, b, note in PATTERN_STREAMS.parse_prefix(body, "editor").model:
         if flag & (FLAG_ALT | FLAG_GATE_A | FLAG_GATE_B | FLAG_GATE_N):
             events.append(
                 Event(

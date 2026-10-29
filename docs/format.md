@@ -283,9 +283,12 @@ number that voice V1/V2/V3 plays on this step. Encoding:
 * `$00..$7F` — pattern number (`$00` is pattern 0, which the editor keeps
   silent). The player indexes the pattern pointer table with the whole byte,
   so V2/V3 values `>= $80` read past it.
-* Any value with bit 7 set in the V0 slot (`$1B00,Y`) — jump command
+* Any value with bit 7 set in the V1 slot (`$1B00,Y`) — jump command
   (the `$FF` form defMON writes). `$1C00,Y` becomes the target song step;
-  `$1D00,Y` is the repeat count (`0` = unconditional infinite loop).
+  `$1D00,Y` is the repeat count: `0` jumps forever, `n` jumps `n` times so
+  the rows from the target play `n + 1` times, then the walker falls through.
+  One loop counter is shared by all jump rows. The row a jump lands on is
+  played as patterns without checking it for a jump, so jumps do not chain.
 
 Edit via `DefmonSong.set_step(y, v1=..., v2=..., v3=...)` for pattern-playing
 rows and `DefmonSong.set_jump(y, target=..., count=...)` for jumps.
@@ -368,11 +371,11 @@ Flag bits:
 
 | Bit | Mask  | Const           | Effect                                                 |
 |-----|-------|-----------------|--------------------------------------------------------|
-| 7   | `$80` | `FLAG_ALT`      | Pattern-end / song-advance trigger                     |
-| 6   | `$40` | `FLAG_GATE_A`   | Apply `slot_a` to sidcall layer 1 row index            |
-| 5   | `$20` | `FLAG_GATE_B`   | Apply `slot_b` to sidcall layer 2 row index            |
+| 7   | `$80` | `FLAG_ALT`      | Ends the arranger step for **all** voices (the step lasts until its voices' earliest ALT); the duration nibble is then loaded into every voice's step counter |
+| 6   | `$40` | `FLAG_GATE_A`   | Arm sidcall layer 1 at row `slot_a`; it is fetched in the same frame |
+| 5   | `$20` | `FLAG_GATE_B`   | Arm sidcall layer 2 at row `slot_b`; layer 2 is applied after layer 1, so it wins a column both write |
 | 4   | `$10` | `FLAG_GATE_N`   | Apply `note` as the voice's `current_note` + transpose buffer; zero slide state |
-| 3-0 | `$0F` |                 | Duration (frames to hold this row before reading next) |
+| 3-0 | `$0F` |                 | Duration `d`: the step lasts `d + 2` main ticks (fetched on the counter underflow, applied the tick after) |
 
 `PatternEvent.parse(raw)` decodes; factories `note_on()`, `delay()`,
 `alt_end()`, `silent_pattern()` build canonical events; read via
@@ -383,9 +386,10 @@ Flag bits:
 shifts depend on the player build: the V20201008 player (and most HVSC
 replays) takes a TR byte with bit 7 set as an absolute note and otherwise adds
 it to the transpose base, masking the result to 7 bits; older replays add with
-no mask, so `current_note` can reach any value `0..255`. `PatternEvent.sid_freq_word()` returns the same 16-bit value
+no mask, so `current_note` can reach any value `0..255`.
+`PatternEvent.sid_freq_word()` returns the same 16-bit value
 the player will latch onto `$D400/$D401` (without the per-voice detune;
-V0=+0, V1=+1, V2=+2 added by the player on `freq_lo`).
+voices 1/2/3 get +0/+1/+2 on `freq_lo`).
 
 #### sidTAB rows (`$5F00..` × 15 bytes)
 
@@ -411,8 +415,8 @@ the bitmap. Column meanings:
 | low    | 5   | `AD`   | Sets the voice's attack/decay byte (emitted to `$D405`)     |
 | low    | 4   | `SR`   | Sets the voice's sustain/release byte (emitted to `$D406`)  |
 | low    | 3   | `TR`   | Sets `current_note`: bit 7 set = absolute `byte & $7F`, else `(transpose buffer + byte) & $7F` (older replays: plain 8-bit add, no mask) |
-| low    | 2   | `AF`   | Sets `slide_mode`: `$00` = no slide, `$01..$7F` = portamento, `$80..$FF` = active slide |
-| low    | 1   | `PW`   | Sets `pulse_hi = byte`, `pulse_lo = byte & $F0` (12-bit `$YX` PW encoding; emitted to `$D402/$D403`) |
+| low    | 2   | `AF`   | Sets `slide_mode`: `$00` = none, `$01..$7F` = constant detune, `$80..$FF` = slide (bit 6 = down); see [Pitch slide](#pitch-slide) |
+| low    | 1   | `PW`   | Pulse width with the nibbles swapped: `PW $YX` gives the 12-bit width `$XY0` (`$D403 = X`, `$D402 = $Y0`) |
 | high   | 7   | `PS`   | Sets `ps_depth`: pulse-width sweep depth + direction (bit 7 = direction) |
 | high   | 6   | `RE`   | Sets `$D417` resonance + voice-routing (3-way dispatch on byte value) |
 | high   | 5   | `FV`   | Sets `$D418` filter mode + volume (volume always emitted as `$0F`) |
@@ -422,7 +426,8 @@ the bitmap. Column meanings:
 `SidtabRow.parse(index, raw, *, jp=None, dl=None)` decodes the row;
 `pack({col: val})` / `to_bytes()` go back. Walk a cascade from row `Y` with
 `DefmonSong.sidcall_frames(Y)` — returns a `list[SidcallFrame]` terminating at
-the first STop, JP loopback, or `max_frames`.
+the first STop, loop back, JP onto a JP (the player follows one level), or
+`max_frames`.
 
 ## Editor form vs packer form
 
@@ -488,6 +493,9 @@ it was. Composers keep the nibbles disjoint, so the XOR acts as an OR. Neither
 byte changes between row fetches, so the XOR does not toggle anything per
 frame ([`tests/test_wg_columns.py`](../tests/test_wg_columns.py)).
 
+These behaviours are checked on the editor's own player in
+[`tests/test_player_semantics.py`](../tests/test_player_semantics.py).
+
 ### Sidcall cascade
 
 Per voice × layer, the cascade tracks `(row_idx, step_counter)`:
@@ -507,12 +515,15 @@ from `target + 1`.
 
 Per voice, `slide_mode` selects the path:
 
-* `0` — no slide. `freq = NOTE_PITCH[note] + pitch_base` (per-voice detune V0=0,
-  V1=1, V2=2 on `freq_lo`; carry NOT propagated to `freq_hi`).
-* `$01..$7F` — portamento toward `(note + slide_mode)`. Adds a one-frame
-  adjacent-semitone step; not integrated across frames.
-* `$80..$FF` — active slide. Index a per-mode rate LUT, integrate into a 16-bit
-  accumulator, then add to `NOTE_PITCH[note]`.
+* `0` — no slide. `freq = NOTE_PITCH[note] + pitch_base` (per-voice detune
+  +0/+1/+2 on `freq_lo` for voices 1/2/3; carry NOT propagated to `freq_hi`).
+* `$01..$7F` — a constant detune, not a portamento: `freq = NOTE_PITCH[note] +
+  (NOTE_PITCH[note + AF - 24] - NOTE_PITCH[note + AF - 25])`, the width of the
+  semitone two octaves below `note + AF`, so `AF $18` is about one semitone up.
+  This path drops the per-voice detune.
+* `$80..$FF` — slide. Bits 0..5 index a rate LUT, bit 6 selects down instead
+  of up, and the rate is integrated per frame into a 16-bit accumulator added
+  to `NOTE_PITCH[note]`.
 
 `GATE_N` from a pattern step zeros the slide accumulator and the slide mode, so a
 fresh note never inherits the prior row's slide.
@@ -525,9 +536,9 @@ fresh note never inherits the prior row's slide.
 * Bit 7 set (`$80..$FF`) — ADD path. `pulse_lo += (depth & $7F)` with carry into
   `pulse_hi`. On `pulse_hi == $0F` overflow, clamp `pulse_lo = $F8` and flip
   direction (XOR `depth ^= $80`).
-* Bit 7 clear (`$01..$7F`) — SUB path. `pulse_lo -= depth - 1` (the `-1` comes
-  from defMON's uncontrolled carry-in at the SBC). On `pulse_hi == 0` borrow,
-  clamp `pulse_lo = $01` and flip direction.
+* Bit 7 clear (`$01..$7F`) — SUB path. `pulse_lo -= depth + 1` (the SBC runs
+  with carry clear). On `pulse_hi == 0` borrow, clamp `pulse_lo = $01` and flip
+  direction.
 
 Because the `PW` column only writes the high nibble of `pulse_lo` (`byte & $F0`),
 tunes can't directly set `pulse_lo`'s low nibble — the PS sweep is the only way

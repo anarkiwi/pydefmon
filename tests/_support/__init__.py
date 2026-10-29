@@ -8,6 +8,7 @@ import functools
 import hashlib
 import os
 import tempfile
+import unittest
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -202,3 +203,20 @@ def prehistoric_56block_image() -> Optional[bytes]:
     return _decrunched(
         "defmon-56blocks.dcr.bin", PREHISTORIC_56_BLOCKS_MEM_SHA256, _prehistoric_prg
     )
+
+
+def editor_grid(song_text: str, frames: int) -> list:
+    """``frames`` SID register frames of ``song_text`` (the song grammar) on the
+    editor's own player; raises ``unittest.SkipTest`` without the editor image.
+    """
+    # pylint: disable-next=import-outside-toplevel
+    from pydefmon import DefmonPlayer, Tune
+    from pydefmon._worktune_oracle import (  # pylint: disable=import-outside-toplevel
+        editor_replay,
+    )
+
+    editor = editor_image_bytes()
+    if editor is None:
+        raise unittest.SkipTest("defMON editor image unavailable")
+    prg = Tune.parse(song_text).to_song().to_bytes()
+    return DefmonPlayer(editor_replay(editor, prg)).render_grid(frames)

@@ -885,10 +885,10 @@ class DefmonSong:
     ) -> list["SidcallFrame"]:
         """Walk the sidcall starting at sidtab row ``start_y``.
 
-        Returns a list of ``SidcallFrame`` covering the rows the
-        player would visit, from ``start_y`` until either a freeze
-        frame (control byte ``$80+``), a loop back to a previously-
-        visited row, or ``max_frames`` (safety bound).
+        Returns a list of ``SidcallFrame`` covering the rows the player
+        fetches from ``start_y`` (row 255 wraps to 0, a JP redirects one
+        level) until a freeze frame (DL ``$80+``), a JP onto a JP, a loop
+        back to a visited row, or ``max_frames``.
         """
         unpacked = self.unpacked_snapshot()
         sidtab = bytes(self.sidtab_region)
@@ -899,24 +899,17 @@ class DefmonSong:
         frames: list[SidcallFrame] = []
         seen: set[int] = set()
         y = start_y & 0xFF
-        loopback_guard = 0
         while len(frames) < max_frames:
-            if y >= 256:
-                break
             if unpacked[OFF_1900 + y] == 0:
-                if loopback_guard >= 4:
-                    break
-                loopback_guard += 1
                 y = unpacked[OFF_1800 + y]
-                continue
+                if unpacked[OFF_1900 + y] == 0:
+                    break  # the player would take its row pointer from page zero
             if y in seen:
-                frames[-1].loops_to = y
+                if frames:
+                    frames[-1].loops_to = y
                 break
             seen.add(y)
-            loopback_guard = 0
             row_bytes = sidtab[y * 15 : y * 15 + 15]
-            if len(row_bytes) < 15:
-                break
             control = unpacked[OFF_1E00 + y]
             # Pass the raw on-disk JP marker (from self.snapshot, not the
             # unpacked form -- unpacked_snapshot rewrites $11 -> runtime
@@ -926,7 +919,7 @@ class DefmonSong:
             frames.append(SidcallFrame(y, row, control))
             if control & 0x80:
                 break
-            y += 1
+            y = (y + 1) & 0xFF
         return frames
 
     # ---- whole-song optimization --------------------------------------
@@ -954,9 +947,9 @@ class DefmonSong:
           the same way — mirroring defMON's own packer, which only
           touches them when the stereo flag is set. Pattern 0 is
           reserved as the "silent voice on this step" target and is
-          never used as a remap destination; a row whose V0/V3 entry
+          never used as a remap destination; a row whose V1 (or V4) entry
           has bit 7 set is a jump command and is skipped entirely
-          because its V1/V2 (or V4/V5) bytes are target/count rather
+          because its V2/V3 (or V5/V6) bytes are target/count rather
           than pattern indices.
 
         Idempotent — running twice produces the same song. Returns
@@ -1156,17 +1149,14 @@ class SidtabRow:
                           WGh so a row can gate without changing waveform.
     AD     $D405         Attack (high nibble) / decay (low nibble).
     SR     $D406         Sustain (high nibble) / release (low nibble).
-    TR     (note byte)   New ``current_note`` for the voice: the byte is
-                           added to the transpose buffer (last GATE_N note)
-                           with plain 8-bit arithmetic — no mask, no bit7
-                           special case. Result wraps at $FF.
-    AF     (slide mode)  Pitch-slide / portamento mode for the voice:
-                          ``$00`` = no slide, ``$01..$7F`` = portamento
-                          toward ``current_note + AF``, ``$80..$FF`` =
-                          active slide at a rate from the per-mode LUT.
-    PW     $D402/$D403   Pulse width — sets ``pulse_hi`` to the byte
-                          verbatim and ``pulse_lo`` to ``byte & $F0``
-                          (12-bit ``$YX`` PW encoding).
+    TR     (note byte)   New ``current_note``: bit 7 set = absolute
+                          ``byte & $7F``, else ``(last GATE_N note + byte)
+                          & $7F`` (older replays: 8-bit add, no mask).
+    AF     (slide mode)  ``$00`` none, ``$01..$7F`` constant detune (not a
+                          portamento), ``$80..$FF`` per-frame slide, bit 6
+                          down (``docs/format.md`` Pitch slide).
+    PW     $D402/$D403   Pulse width, nibbles swapped: ``$YX`` gives the
+                          12-bit width ``$XY0``.
     PS     (depth byte)  Pulse-width sweep depth + direction (bit 7 =
                           direction). The sweep modulates ``pulse_lo``
                           each frame until clamped, then auto-reverses.
@@ -1408,25 +1398,23 @@ class PatternEvent:
 
     Flag bits (mask constants on the class):
 
-    * ``FLAG_ALT`` (``$80``) — pattern-end / song-advance trigger.
-      Setting this on the last event of a pattern hands control to
-      the arranger to walk to the next song step. The flag's low
-      nibble (``duration``) becomes the timer reload for the NEXT
-      pattern step's gap.
-    * ``FLAG_GATE_A`` (``$40``) — apply ``slot_a`` to the voice's
-      sidcall layer 1: sets ``sc1_row_idx = slot_a`` and counter
-      to 0 so the cascade fetches at row ``slot_a`` next frame.
+    * ``FLAG_ALT`` (``$80``) — ends the arranger step for every
+      voice, not just this one: the step lasts until its voices'
+      earliest ALT. Its ``duration`` is loaded into all voices'
+      counters, so the next patterns start ``duration + 2`` ticks later.
+    * ``FLAG_GATE_A`` (``$40``) — arm sidcall layer 1 at row
+      ``slot_a`` with counter 0; the row is fetched in the same frame.
     * ``FLAG_GATE_B`` (``$20``) — same for sidcall layer 2 via
-      ``slot_b``.
+      ``slot_b``; layer 2 applies after layer 1, so it wins a column
+      both write.
     * ``FLAG_GATE_N`` (``$10``) — apply ``note`` as the voice's new
       ``current_note`` AND store the same byte in the voice's
       transpose buffer (the latter is the base for subsequent
       sidTAB TR-relative shifts). Also zeros the voice's
       slide-accumulator + slide-mode so the new note starts clean.
-    * bits 3..0 — ``duration``: how many frames the player holds
-      this row before reading the next pattern step. The cadence
-      is 1 main-tick NMI per ``cycles_per_frame`` cycles, so a
-      larger ``duration`` holds the row for more frames under PAL.
+    * bits 3..0 — ``duration``: the step lasts ``duration + 2`` main
+      ticks (fetched when the counter underflows, applied the tick
+      after), so a step that gates nothing is pure delay.
 
     Build canonical events via the factories: :meth:`note_on`,
     :meth:`delay`, :meth:`alt_end`, :meth:`silent_pattern`. Edit
@@ -1473,8 +1461,8 @@ class PatternEvent:
 
     @classmethod
     def delay(cls, duration: int = 1) -> "PatternEvent":
-        """Build a pure-delay event: no gates fired, ``duration``-frame
-        wait before the next event."""
+        """Build a pure-delay event: no gates fired, a ``duration + 2``
+        tick wait before the next event."""
         if not 0 <= duration <= 0x0F:
             raise ValueError(f"duration must be 0..15, got {duration}")
         return cls(duration & 0x0F, 0, 0, 0)
@@ -1536,7 +1524,7 @@ class PatternEvent:
 
         Uses the same ``NOTE_PITCH_LO/HI`` tables the player walks
         (indexed by ``note`` directly — *not* ``note - 1``). The
-        per-voice ``pitch_base`` detune (V0=+0, V1=+1, V2=+2 on
+        per-voice ``pitch_base`` detune (voices 1/2/3: +0/+1/+2 on
         freq_lo) is *not* applied here; callers that need a
         per-voice exact match should add it themselves.
         """

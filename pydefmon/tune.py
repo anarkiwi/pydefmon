@@ -44,6 +44,8 @@ STOP = 0x80
 MAX_DURATION = 0x0F
 PATTERNS = 0x80
 ROWS = 0x100
+#: sidTAB columns in the order the player applies them.
+COLUMNS = ("WGh", "WGl", "AD", "SR", "TR", "AF", "PW", "PS", "RE", "FV", "CP", "ACID")
 _SIGNATURE_FROM_PLAYER_BASE = 0x22
 _MAX_INIT_CYCLES = 1_000_000
 # Jump rows of the players without loop counts: LDA arr2,Y / TAY / LDX arr1,Y.
@@ -312,7 +314,11 @@ class Tune:
                     gates.append(f"end {ev.end}")
                 out.append(f"  {ev.at}: " + " ".join(gates))
         for y, row in self.rows.items():
-            cols = [f"{c} {_hex(v, 4 if c == 'ACID' else 2)}" for c, v in row.columns]
+            given = dict(row.columns)
+            cols = [
+                f"{c} {'--' if c not in given else _hex(given[c], 4 if c == 'ACID' else 2)}"
+                for c in COLUMNS
+            ]
             tail = (
                 "stop" if row.hold is None else f"hold {row.hold} -> {_hex(row.next)}"
             )
@@ -604,10 +610,10 @@ class _ToTune(Transformer):
 
     def row(self, y, *items):
         *columns, (hold, nxt) = items
-        return "row", (_int(y), Row(tuple(columns), hold, nxt))
+        return "row", (_int(y), Row(tuple(c for c in columns if c), hold, nxt))
 
     def column(self, name, value):
-        return str(name), _int(value)
+        return None if value == "--" else (str(name), _int(value))
 
     def hold(self, frames, nxt):
         return _int(frames), _int(nxt)

@@ -84,12 +84,15 @@ from pydefmon._load_format import (
 from pydefmon import _sid_format
 from pydefmon._goto80_format import decode_replay as decode_goto80_replay
 from pydefmon._layout import (
+    COLUMNS,
     GATE_PAT_BASE_ADDR,
     GATE_PATTERN_MARKER_ADDR,
     GATE_SONG_POSITION_ADDR,
     LOAD_ADDRESS,
     SNAPSHOT_END as STANDARD_SNAPSHOT_END,
     SNAPSHOT_SIZE as STANDARD_SNAPSHOT_SIZE,  # 22887
+    STREAMS,
+    RowColumns,
 )
 from pydefmon._variant import detect_variant
 
@@ -1193,12 +1196,6 @@ class SidtabRow:
       until a ``PatternEvent`` re-arms it via GATE_A/B).
     """
 
-    _LOW_BITS = {7: "WGl", 6: "WGh", 5: "AD", 4: "SR", 3: "TR", 2: "AF", 1: "PW"}
-    _LOW_ORDER = (6, 7, 5, 4, 3, 2, 1)  # WGh, WGl, AD, SR, TR, AF, PW
-    _HIGH_BITS = {7: "PS", 6: "RE", 5: "FV", 4: "CP", 3: "ACID"}
-    _HIGH_ORDER = (7, 6, 5, 4, 3)
-    _HIGH_WIDTH = {"PS": 1, "RE": 1, "FV": 1, "CP": 1, "ACID": 2}
-
     __slots__ = (
         "index",
         "raw",
@@ -1251,30 +1248,12 @@ class SidtabRow:
         if dl is not None and not 0 <= dl <= 0xFF:
             raise ValueError(f"dl must be 0..255, got {dl}")
         row = cls(index, raw)
-        row.low_bitmap = raw[0]
-        pos = 1
-        for bit in cls._LOW_ORDER:
-            if row.low_bitmap & (1 << bit):
-                if pos >= 15:
-                    break
-                setattr(row, cls._LOW_BITS[bit], raw[pos])
-                pos += 1
-        if pos < 15:
-            row.high_bitmap = raw[pos]
-            pos += 1
-            for bit in cls._HIGH_ORDER:
-                if row.high_bitmap & (1 << bit):
-                    name = cls._HIGH_BITS[bit]
-                    w = cls._HIGH_WIDTH[name]
-                    if pos + w > 15:
-                        break
-                    if w == 2:
-                        v = raw[pos] | (raw[pos + 1] << 8)
-                    else:
-                        v = raw[pos]
-                    setattr(row, name, v)
-                    pos += w
-        row.trailing = bytes(raw[pos:])
+        (row.low_bitmap, row.high_bitmap, columns), size = STREAMS.parse_prefix(
+            raw, "row"
+        )
+        for name, value in columns:
+            setattr(row, name, value)
+        row.trailing = bytes(raw[size:])
         row.jp = jp
         row.dl = dl
         return row
@@ -1282,31 +1261,7 @@ class SidtabRow:
     def to_bytes(self) -> bytes:
         """Inverse of :meth:`parse`: pack this row's columns + trailing
         bytes back into the 15-byte on-disk form."""
-        out = bytearray()
-        low_bm = 0
-        for bit in self._LOW_ORDER:
-            if getattr(self, self._LOW_BITS[bit]) is not None:
-                low_bm |= 1 << bit
-        out.append(low_bm)
-        for bit in self._LOW_ORDER:
-            v = getattr(self, self._LOW_BITS[bit])
-            if v is not None:
-                out.append(v & 0xFF)
-        high_bm = 0
-        for bit in self._HIGH_ORDER:
-            if getattr(self, self._HIGH_BITS[bit]) is not None:
-                high_bm |= 1 << bit
-        out.append(high_bm)
-        for bit in self._HIGH_ORDER:
-            name = self._HIGH_BITS[bit]
-            v = getattr(self, name)
-            if v is None:
-                continue
-            if self._HIGH_WIDTH[name] == 2:
-                out.append(v & 0xFF)
-                out.append((v >> 8) & 0xFF)
-            else:
-                out.append(v & 0xFF)
+        out = bytearray(RowColumns.of(self.values()).to_bytes())
         out.extend(self.trailing)
         if len(out) > 15:
             raise ValueError(
@@ -1321,9 +1276,8 @@ class SidtabRow:
         """Build a 15-byte row from a ``{column_name: value}`` dict +
         optional ``trailing`` bytes (zero-padded otherwise)."""
         row = cls(0, b"")
-        valid = set(cls._LOW_BITS.values()) | set(cls._HIGH_BITS.values())
         for name, v in values.items():
-            if name not in valid:
+            if name not in COLUMNS:
                 raise ValueError(f"unknown sidtab column: {name!r}")
             setattr(row, name, int(v))
         row.trailing = bytes(trailing)
@@ -1332,20 +1286,7 @@ class SidtabRow:
     def values(self) -> dict:
         """Return ``{column_name: value}`` for columns with overrides set."""
         out = {}
-        for name in (
-            "WGh",
-            "WGl",
-            "AD",
-            "SR",
-            "TR",
-            "AF",
-            "PW",
-            "PS",
-            "RE",
-            "FV",
-            "CP",
-            "ACID",
-        ):
+        for name in COLUMNS:
             v = getattr(self, name)
             if v is not None:
                 out[name] = v

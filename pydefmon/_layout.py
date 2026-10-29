@@ -3,14 +3,14 @@
 :mod:`pydefmon._sid_format` (editor-layout packed replays) and
 :mod:`pydefmon._goto80_format` (the compact Goto80 runtime) both re-expand a
 replay into the editor's ``$1800..$7166`` snapshot; the geometry of that
-snapshot, the pattern-stream grammar (``patterns.lark``) and the sidTAB row
-relocation live here.
+snapshot, the pattern-stream and sidTAB-row grammar (``streams.lark``) and the
+sidTAB row relocation live here.
 """
 
 from __future__ import annotations
 
 from lark import Transformer, v_args
-from pysidtracker import ByteGrammar, Parsed, SidImage
+from pysidtracker import BitField, ByteGrammar, Parsed, SidImage
 
 LOAD_ADDRESS = 0x1800
 SNAPSHOT_END = 0x7167
@@ -53,6 +53,54 @@ class PackedPattern(tuple):
         )
 
 
+#: sidTAB columns per bitmap, in the order the player reads their values.
+LOW_COLUMNS = (
+    BitField(6, "WGh"),
+    BitField(7, "WGl"),
+    BitField(5, "AD"),
+    BitField(4, "SR"),
+    BitField(3, "TR"),
+    BitField(2, "AF"),
+    BitField(1, "PW"),
+)
+HIGH_COLUMNS = (
+    BitField(7, "PS"),
+    BitField(6, "RE"),
+    BitField(5, "FV"),
+    BitField(4, "CP"),
+    BitField(3, "ACID", 2),
+)
+COLUMNS = tuple(f.tag for f in LOW_COLUMNS + HIGH_COLUMNS)
+_TAG_COLUMN = {"T_" + c.upper(): c for c in COLUMNS}
+
+
+def _tags(fields) -> tuple:
+    return tuple(BitField(f.bit, "T_" + f.tag.upper(), f.width) for f in fields)
+
+
+class RowColumns(tuple):
+    """A sidTAB row's ``(low bitmap, high bitmap, ((column, value), ...))``."""
+
+    @classmethod
+    def of(cls, columns: dict) -> "RowColumns":
+        """The row writing ``columns`` (name -> value), bitmaps holding only their bits."""
+        low = sum(1 << f.bit for f in LOW_COLUMNS if f.tag in columns)
+        high = sum(1 << f.bit for f in HIGH_COLUMNS if f.tag in columns)
+        return cls((low, high, tuple((c, columns[c]) for c in COLUMNS if c in columns)))
+
+    def to_bytes(self) -> bytes:
+        low, high, columns = self
+        values = dict(columns)
+        out = bytearray([low])
+        for fields, bitmap in ((LOW_COLUMNS, None), (HIGH_COLUMNS, high)):
+            if bitmap is not None:
+                out.append(bitmap)
+            for f in fields:
+                if f.tag in values:
+                    out += (values[f.tag] & 0xFFFF).to_bytes(2, "little")[: f.width]
+        return bytes(out)
+
+
 @v_args(inline=True)
 class _ToSteps(Transformer):
     # pylint: disable=missing-function-docstring
@@ -80,16 +128,32 @@ class _ToSteps(Transformer):
         model = PackedPattern(steps)
         return Parsed(model, len(model.to_bytes()))
 
+    def column(self, tag, *values):
+        return _TAG_COLUMN[tag.type], int.from_bytes(bytes(map(ord, values)), "little")
 
-#: The pattern streams of both forms; start rules ``editor`` and ``packed``.
-PATTERN_STREAMS = ByteGrammar(
-    __package__, "patterns.lark", ("editor", "packed"), _ToSteps()
+    def low(self, bitmap, *columns):
+        return ord(bitmap), columns
+
+    high = low
+
+    def row(self, low, high) -> Parsed:
+        model = RowColumns((low[0], high[0], low[1] + high[1]))
+        return Parsed(model, len(model.to_bytes()))
+
+
+#: Pattern streams of both forms (``editor``, ``packed``) and sidTAB rows (``row``).
+STREAMS = ByteGrammar(
+    __package__,
+    "streams.lark",
+    ("editor", "packed", "row"),
+    _ToSteps(),
+    bitmaps={"LOWMAP": _tags(LOW_COLUMNS), "HIGHMAP": _tags(HIGH_COLUMNS)},
 )
 
 
 def store_pattern(snap: bytearray, image: SidImage, pat: int, start: int) -> None:
     """Expand the packed stream at ``start`` into pattern ``pat``'s fixed steps."""
-    steps = PATTERN_STREAMS.read(image, start, "packed", f"pattern {pat}").model
+    steps = STREAMS.read(image, start, "packed", f"pattern {pat}").model
     dst = PATTERN_BANK + pat * PATTERN_STRIDE - LOAD_ADDRESS
     body = EditorPattern(steps).to_bytes()
     snap[dst : dst + len(body)] = body

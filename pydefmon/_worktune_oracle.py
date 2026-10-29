@@ -1,13 +1,13 @@
 """Run defMON's own ``$D6C9`` worktune LOAD as a fidelity oracle.
 
-A thin wrapper over ``pydefmon._packer`` that runs ``decoder_load_setup``
+A thin wrapper over :mod:`pysidtracker.editor` that runs ``decoder_load_setup``
 (``$CEB2``) on the decrunched editor and returns the post-LOAD image at
 ``$1800..$7166`` — a byte reference pydefmon's reads are checked against.
 """
 
 from __future__ import annotations
 
-from pysidtracker.header import write_psid
+from pysidtracker.editor import editor_replay as _editor_replay, run_editor
 
 from pydefmon._packer import (
     DECODE_ENTRY,
@@ -15,7 +15,6 @@ from pydefmon._packer import (
     PLAY_ADDRESS,
     PRG_LOAD,
     REPLAY_BASE,
-    place_and_run,
 )
 
 #: One past the last editor song byte ($7166).
@@ -31,7 +30,7 @@ def load_worktune(editor_image: bytes, worktune_prg: bytes) -> bytes:
     body = worktune_prg[2:]
     if not body:
         raise ValueError("worktune .prg carries no body")
-    mem = place_and_run(editor_image, body, DECODE_ENTRY)
+    mem = run_editor(editor_image, body, PRG_LOAD, (DECODE_ENTRY,))
     return bytes(mem[PRG_LOAD:SNAPSHOT_TOP_EXCL])
 
 
@@ -42,11 +41,13 @@ def editor_replay(editor_image: bytes, worktune_prg: bytes) -> bytes:
     ``$1000`` (init ``$1000``, play ``$1003``), so this is the worktune as the
     composer hears it, with no packer in between.
     """
-    mem = place_and_run(editor_image, worktune_prg[2:], DECODE_ENTRY)
-    return write_psid(
-        load=REPLAY_BASE,
-        init=INIT_ADDRESS,
-        play=PLAY_ADDRESS,
-        image=bytes(mem[REPLAY_BASE:SNAPSHOT_TOP_EXCL]),
+    return _editor_replay(
+        editor_image,
+        worktune_prg[2:],
+        PRG_LOAD,
+        (DECODE_ENTRY,),
+        (REPLAY_BASE, SNAPSHOT_TOP_EXCL),
+        INIT_ADDRESS,
+        PLAY_ADDRESS,
         flags=0x20,
     )

@@ -14,10 +14,17 @@ from importlib.resources import files
 from typing import Iterable, Optional, Union
 
 from lark import Lark, Transformer, v_args
-from pysidtracker import CodePattern, find_code_first
-from pysidtracker.emu import run_to_rts_until, wire_mpu
+from pysidtracker import (
+    CodePattern,
+    find_code_first,
+    init_arguments,
+    layout_chains,
+    minimise,
+    number_chains,
+)
 
 from pydefmon._layout import (
+    COLUMNS,
     FLAG_ALT,
     FLAG_GATE_A,
     FLAG_GATE_B,
@@ -30,7 +37,7 @@ from pydefmon._layout import (
     PATTERN_STRIDE,
     SIDTAB_BANK,
     SIDTAB_ROW_STRIDE,
-    PATTERN_STREAMS,
+    STREAMS,
 )
 from pydefmon.defmon import STEREO_ENABLE, DefmonError, DefmonSong, SidtabRow
 
@@ -45,9 +52,7 @@ MAX_DURATION = 0x0F
 PATTERNS = 0x80
 ROWS = 0x100
 #: sidTAB columns in the order the player applies them.
-COLUMNS = ("WGh", "WGl", "AD", "SR", "TR", "AF", "PW", "PS", "RE", "FV", "CP", "ACID")
 _SIGNATURE_FROM_PLAYER_BASE = 0x22
-_MAX_INIT_CYCLES = 1_000_000
 # Jump rows of the players without loop counts: LDA arr2,Y / TAY / LDX arr1,Y.
 _UNCOUNTED_JUMPS = CodePattern("BE ?? ?? 10 ?? B9 ?? ?? A8 BE")
 
@@ -241,7 +246,10 @@ class Tune:
         Rows are minimised as a Moore machine, patterns merged over those row
         classes, then both numbered from 1 by first use (rows chain-consecutive).
         """
-        klass = _minimise(self.rows)
+        klass = minimise(
+            {y: (r.columns, r.hold) for y, r in self.rows.items()},
+            {y: r.next for y, r in self.rows.items()},
+        )
         pkey = {
             p: tuple(_map_rows(ev, klass) for ev in events if ev != Event(ev.at))
             for p, events in self.patterns.items()
@@ -253,14 +261,13 @@ class Tune:
                     for p in step.voices:
                         pnum.setdefault(pkey[p], len(pnum) + 1)
         rep = {klass[y]: y for y in sorted(self.rows, reverse=True)}
-        rnum: dict[int, int] = {}
-        for key in pnum:
-            for ev in key:
-                for k in (ev.a, ev.b):
-                    while k is not None and k not in rnum:
-                        rnum[k] = len(rnum) + 1
-                        nxt = self.rows[rep[k]].next
-                        k = None if nxt is None else klass[nxt]
+        succ = {
+            k: None if self.rows[y].next is None else klass[self.rows[y].next]
+            for k, y in rep.items()
+        }
+        rnum = number_chains(
+            (k for key in pnum for ev in key for k in (ev.a, ev.b)), succ, start=1
+        )
         rows = {}
         for k, n in rnum.items():
             row = self.rows[rep[k]]
@@ -353,16 +360,9 @@ def _start_rows(song: DefmonSong) -> tuple[int, ...]:
     # pylint: disable-next=import-outside-toplevel,cyclic-import
     from pydefmon.defmon_player import replay_image
 
-    image = replay_image(song.image_bytes)
-    header = image.header
     base = song.signature - _SIGNATURE_FROM_PLAYER_BASE
-    init = header.init_address or header.real_load_address
-    starts = []
-    for subtune in range(header.songs or 1):
-        mpu, mem = wire_mpu(bytearray(image.mem))
-        hit = run_to_rts_until(mpu, mem, init, subtune, {base}, _MAX_INIT_CYCLES)
-        starts.append(mpu.a if hit else subtune)
-    return tuple(dict.fromkeys(starts))
+    starts = init_arguments(replay_image(song.image_bytes), base)
+    return tuple(dict.fromkeys(s if a is None else a for s, a in enumerate(starts)))
 
 
 def _walk_arranger(
@@ -400,7 +400,7 @@ def _decode_pattern(body, resolve) -> tuple[tuple[Event, ...], Optional[int]]:
     """Events up to the ALT step, and when a 33rd step would start (no ALT)."""
     events = []
     at = 0
-    for flag, a, b, note in PATTERN_STREAMS.parse_prefix(body, "editor").model:
+    for flag, a, b, note in STREAMS.parse_prefix(body, "editor").model:
         if flag & (FLAG_ALT | FLAG_GATE_A | FLAG_GATE_B | FLAG_GATE_N):
             events.append(
                 Event(
@@ -490,55 +490,9 @@ def _layout(rows: dict[int, Row]) -> tuple[dict[int, int], dict[int, int]]:
                 break
         else:
             return {y: y for y in rows}, jps
-    indegree = dict.fromkeys(rows, 0)
-    for row in rows.values():
-        if row.next is not None:
-            indegree[row.next] += 1
-    order = sorted(rows, key=lambda y: (indegree[y] > 0, y))
-    for first in (1, 0):
-        slots, jps = _chains(rows, order, first)
-        if len(slots) + len(jps) + first <= ROWS:
-            return slots, jps
-    raise DefmonError(f"rows need {len(slots) + len(jps)} sidTAB slots (max {ROWS})")
-
-
-def _chains(rows: dict[int, Row], order, pos: int):
-    """Place each row's cascade consecutively from ``pos``, closing with a JP."""
-    slots: dict[int, int] = {}
-    jps: dict[int, int] = {}
-    for y in order:
-        while y not in slots:
-            slots[y] = pos
-            pos += 1
-            nxt = rows[y].next
-            if nxt is None:
-                break
-            if nxt in slots:
-                jps[pos] = nxt
-                pos += 1
-                break
-            y = nxt
-    return slots, jps
-
-
-def _minimise(rows: dict[int, Row]) -> dict[int, int]:
-    """Row -> class of rows the cascade cannot tell apart (Moore refinement)."""
-
-    def renumber(keys: dict) -> dict[int, int]:
-        ids: dict = {}
-        return {y: ids.setdefault(k, len(ids)) for y, k in keys.items()}
-
-    klass = renumber({y: (r.columns, r.hold) for y, r in rows.items()})
-    while True:
-        refined = renumber(
-            {
-                y: (klass[y], None if r.next is None else klass[r.next])
-                for y, r in rows.items()
-            }
-        )
-        if len(set(refined.values())) == len(set(klass.values())):
-            return refined
-        klass = refined
+    return layout_chains(
+        {y: r.next for y, r in rows.items()}, ROWS, first=1, error=DefmonError
+    )
 
 
 @lru_cache(maxsize=1)

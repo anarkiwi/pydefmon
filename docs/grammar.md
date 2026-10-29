@@ -81,10 +81,12 @@ names its target, and a row followed by a JP has that target as `next`. Columns
 are those whose bitmap bits the player tests (low bits 7..1, high bits 7..3), in
 the order it reads them. Unused bitmap bits and trailing bytes are dropped.
 
-Pattern bodies are read through the byte grammar
-[`pydefmon/patterns.lark`](../pydefmon/patterns.lark), rule `editor` for the
-editor's 4-byte steps and `packed` for a replay's streams, which carry one
-payload byte per set gate.
+Pattern bodies and sidTAB rows are read through the byte grammar
+[`pydefmon/streams.lark`](../pydefmon/streams.lark): rule `editor` for the
+editor's 4-byte steps, `packed` for a replay's streams (one payload byte per
+set gate) and `row` for a sidTAB row, whose bitmap bits select the column
+values after them (`pysidtracker.BitField`). `pysidtracker grammar SONG` prints
+the streams the player reads.
 
 ## Canonical form
 
@@ -92,8 +94,8 @@ payload byte per set gate.
 plays the same:
 
 1. sidTAB rows are minimised as a Moore machine (output: columns and hold;
-   transition: `next`) by partition refinement, so rows whose cascades produce
-   the same writes forever are merged;
+   transition: `next`) with `pysidtracker.automaton.minimise`, so rows whose
+   cascades produce the same writes forever are merged;
 2. patterns are merged when their events are equal over those row classes;
 3. patterns are numbered from `$01` in arranger order, and rows from `$01` in
    pattern-event order with each row's cascade numbered consecutively after it.
@@ -103,9 +105,10 @@ Equal canonical tunes play identically. The converse need not hold: a sound
 that comes about through different structure, such as a merged duration nibble
 on an ALT step that never ends a step, is not normalised.
 
-`pysidtracker snapshot build CORPUS --format defmon` digests each tune's
-decoded RAM image (probe `snapshot`) and canonical text (probe `tune`), and
-`pysidtracker snapshot diff` compares two such snapshots.
+`pysidtracker equiv A B` compares two tunes' canonical texts and prints the
+diff. `pysidtracker snapshot build CORPUS --format defmon` digests each tune's
+decoded RAM image (probe `snapshot`) and canonical text (probe `canonical`),
+and `pysidtracker snapshot diff` compares two such snapshots.
 
 `DefmonSong.diff` compares RAM regions. Comparing canonical tunes is the
 semantic comparison. A `.prg` worktune and defMON's own packing of it give

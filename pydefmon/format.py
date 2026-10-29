@@ -5,16 +5,26 @@ pydefmon ships no CLI of its own: it registers a
 group (see ``pyproject.toml``), so the shared ``pysidtracker info / reglog /
 wav`` tool recognises a defMON replay by content and renders it through
 :class:`~pydefmon.DefmonPlayer`; ``pysidtracker snapshot`` digests the decoded
-RAM image and the canonical song grammar (:class:`~pydefmon.Tune`) as probes.
+RAM image and the canonical song grammar (:class:`~pydefmon.Tune`), which is
+also what ``pysidtracker equiv`` compares; ``pysidtracker grammar`` lists the
+pattern bodies and sidTAB rows the player reads through ``streams.lark``.
 """
 
 from __future__ import annotations
 
-from typing import Mapping, Sequence
+from typing import Iterator, Mapping, Sequence
 
 from pysidtracker import SidFormat, SidImage
 
 from pydefmon import _sid_format
+from pydefmon._layout import (
+    LOAD_ADDRESS,
+    PATTERN_BANK,
+    PATTERN_STRIDE,
+    SIDTAB_BANK,
+    SIDTAB_ROW_STRIDE,
+    STREAMS,
+)
 from pydefmon.defmon import DefmonSidParser, DefmonSong
 from pydefmon._variant import detect_variant
 from pydefmon.defmon_player import DefmonPlayer
@@ -59,6 +69,20 @@ def _facet_sites(song: DefmonSong) -> Mapping[int, str]:
     return {} if song.signature is None else {song.signature: "signature"}
 
 
+def _streams(song: DefmonSong) -> Iterator[tuple]:
+    """The pattern bodies and sidTAB rows the player reads, as ``streams.lark`` models."""
+    tune = Tune.from_song(song)
+    snap = song.unpacked_snapshot()
+    for p in tune.patterns:
+        start = PATTERN_BANK + p * PATTERN_STRIDE - LOAD_ADDRESS
+        steps = STREAMS.parse_prefix(snap[start : start + PATTERN_STRIDE], "editor")
+        yield f"pattern ${p:02x}", steps.model, "editor"
+    for y in tune.rows:
+        start = SIDTAB_BANK + y * SIDTAB_ROW_STRIDE - LOAD_ADDRESS
+        row = STREAMS.parse_prefix(snap[start : start + SIDTAB_ROW_STRIDE], "row")
+        yield f"row ${y:02x}", row.model, "row"
+
+
 def defmon_format() -> SidFormat:
     """The :class:`~pysidtracker.SidFormat` describing defMON for the generic CLI."""
     return SidFormat(
@@ -69,8 +93,8 @@ def defmon_format() -> SidFormat:
         variant=detect_variant,
         facet_sites=_facet_sites,
         describe=lambda song: [f"snapshot: {len(song.snapshot)} bytes"],
-        probes={
-            "snapshot": lambda song: bytes(song.snapshot),
-            "tune": lambda song: str(Tune.from_song(song).canonical()).encode(),
-        },
+        probes={"snapshot": lambda song: bytes(song.snapshot)},
+        grammar=STREAMS,
+        streams=_streams,
+        canonical=lambda song: str(Tune.from_song(song).canonical()),
     )

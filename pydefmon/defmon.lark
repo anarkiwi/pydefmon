@@ -26,11 +26,12 @@ gate: "a" HEX                       -> gate_a
     | "n" HEX                       -> gate_n
 
 row: "row" HEX column* (hold | stop)
-column: COLUMN HEX
+column: COLUMN (HEX | EMPTY)
 hold: "hold" INT "->" HEX
 stop: "stop"
 
 JUMPS: "counted" | "uncounted"
+EMPTY: "--"
 COLUMN: "WGh" | "WGl" | "AD" | "SR" | "TR" | "AF" | "PW" | "PS" | "RE" | "FV" | "CP" | "ACID"
 HEX: /\$[0-9a-fA-F]+/
 COMMENT: /#[^\n]*/

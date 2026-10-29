@@ -1151,10 +1151,9 @@ class SidtabRow:
     =====  ============  ================================================
     Col    SID reg       Effect
     =====  ============  ================================================
-    WGh    $D404         Voice control byte (waveform / gate / sync / ring).
-                          Becomes ``ctrl_main`` on the voice.
-    WGl    (XOR mask)    XOR'd into ``ctrl_main`` each frame before emit.
-                          Lets tunes flicker waveform/gate mid-note.
+    WGh    $D404         Waveform nibble; the voice emits ``WGh ^ WGl``.
+    WGl    $D404         Gate / sync / ring / test nibble, set apart from
+                          WGh so a row can gate without changing waveform.
     AD     $D405         Attack (high nibble) / decay (low nibble).
     SR     $D406         Sustain (high nibble) / release (low nibble).
     TR     (note byte)   New ``current_note`` for the voice: the byte is

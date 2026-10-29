@@ -32,8 +32,8 @@ pattern $01
   0: n $31 a $01
   6: a $03 b $04
   62: end 0
-row $01 WGh $41 AD $09 SR $f0 PW $08 hold 3 -> $02
-row $02 WGh $40 stop
+row $01 WGh $40 WGl $01 AD $09 SR $f0 TR -- AF -- PW $08 PS -- RE -- FV -- CP -- ACID -- hold 3 -> $02
+row $02 WGl $00 stop
 ```
 
 | Item | Meaning |
@@ -44,7 +44,7 @@ row $02 WGh $40 stop
 | `stereo $dXXX` | SID#2 is enabled, at this base. |
 | `sid N` | A chip's arranger: `$yy: $p1 $p2 $p3` plays three patterns, `$yy: jump $tt xC` continues at row `$tt`. |
 | `pattern $pp` | Events at main-tick offsets from the pattern's first step: `a`/`b` arm sidcall layer 1/2 at a row, `n` sets the note, `end d` is the ALT step. |
-| `row $rr` | Column writes in player order, then `hold F -> $nn` (fetch `$nn` after `F` frames) or `stop`. |
+| `row $rr` | Column writes in player order, then `hold F -> $nn` (fetch `$nn` after `F` frames) or `stop`. A column is `--` (or omitted) when the row does not write it, and the voice keeps that column's last value; `$00` is a write of zero. Rows are printed with all twelve columns, as in the editor. |
 
 ## What the player reads
 

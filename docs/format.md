@@ -395,7 +395,7 @@ state on the frame of the fetch.
 
 ```
 byte 0           low-half bitmap (which low columns are present)
-bytes 1..N       low-half values (in screen-column order)
+bytes 1..N       low-half values (in screen-column order; a column shown `--` is absent)
 byte 1+N         high-half bitmap (which high columns are present)
 bytes 2+N..M     high-half values (ACID is 2 bytes, little-endian; others 1)
 bytes M+1..14    zero pad
@@ -406,8 +406,8 @@ the bitmap. Column meanings:
 
 | Bitmap | Bit | Column | What it does                                                |
 |--------|-----|--------|-------------------------------------------------------------|
-| low    | 6   | `WGh`  | Sets `ctrl_main` (voice ctrl: waveform / gate / sync / ring; emitted to `$D404`) |
-| low    | 7   | `WGl`  | Sets `ctrl_eor`: XOR mask applied to `ctrl_main` each frame before emit |
+| low    | 6   | `WGh`  | Waveform nibble of `$D404` (`$10` tri, `$20` saw, `$40` pulse, `$80` noise); kept until a row writes WGh again |
+| low    | 7   | `WGl`  | Control nibble of `$D404` (`$01` gate, `$02` sync, `$04` ring, `$08` test); kept until a row writes WGl again |
 | low    | 5   | `AD`   | Sets the voice's attack/decay byte (emitted to `$D405`)     |
 | low    | 4   | `SR`   | Sets the voice's sustain/release byte (emitted to `$D406`)  |
 | low    | 3   | `TR`   | Sets `current_note`: bit 7 set = absolute `byte & $7F`, else `(transpose buffer + byte) & $7F` (older replays: plain 8-bit add, no mask) |
@@ -481,8 +481,12 @@ $D418 (volume + filter mode)                 (1)
 $D416 (filter cutoff hi)                     (1)
 ```
 
-`CTRL` is emitted as `ctrl_main XOR ctrl_eor` (so the sidTAB `WGl` column flicks
-waveform/gate bits each frame).
+`CTRL` is emitted as `WGh XOR WGl`. The two bytes are separate columns so a
+sidTAB row can change one and keep the other: `WGl $00` releases the gate
+without touching the waveform, and `WGh $20` switches to saw with the gate as
+it was. Composers keep the nibbles disjoint, so the XOR acts as an OR. Neither
+byte changes between row fetches, so the XOR does not toggle anything per
+frame ([`tests/test_wg_columns.py`](../tests/test_wg_columns.py)).
 
 ### Sidcall cascade
 

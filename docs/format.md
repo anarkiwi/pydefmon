@@ -280,9 +280,9 @@ a copy with this region materialised, matching what the player sees at runtime.
 Per song-step `Y`, the byte at `$1B00,Y` / `$1C00,Y` / `$1D00,Y` is the pattern
 number that voice V1/V2/V3 plays on this step. Encoding:
 
-* `$00` — silent voice on this step.
-* `$01..$7F` — pattern number (high bit, if set, is an editor-only flag masked
-  off by the player).
+* `$00..$7F` — pattern number (`$00` is pattern 0, which the editor keeps
+  silent). The player indexes the pattern pointer table with the whole byte,
+  so V2/V3 values `>= $80` read past it.
 * Any value with bit 7 set in the V0 slot (`$1B00,Y`) — jump command
   (the `$FF` form defMON writes). `$1C00,Y` becomes the target song step;
   `$1D00,Y` is the repeat count (`0` = unconditional infinite loop).
@@ -379,9 +379,11 @@ Flag bits:
 `DefmonSong.pattern_events(idx)` and write via `set_pattern_events(idx, events)`.
 
 **Note byte → SID frequency.** The pitch oscillator indexes the 256-entry
-`NOTE_PITCH_LO / NOTE_PITCH_HI` tables directly by `note` (not `note-1`). The
-player uses plain 8-bit addition for TR shifts, so `current_note` can reach any
-value `0..255`. `PatternEvent.sid_freq_word()` returns the same 16-bit value
+`NOTE_PITCH_LO / NOTE_PITCH_HI` tables directly by `note` (not `note-1`). TR
+shifts depend on the player build: the V20201008 player (and most HVSC
+replays) takes a TR byte with bit 7 set as an absolute note and otherwise adds
+it to the transpose base, masking the result to 7 bits; older replays add with
+no mask, so `current_note` can reach any value `0..255`. `PatternEvent.sid_freq_word()` returns the same 16-bit value
 the player will latch onto `$D400/$D401` (without the per-voice detune;
 V0=+0, V1=+1, V2=+2 added by the player on `freq_lo`).
 
@@ -408,7 +410,7 @@ the bitmap. Column meanings:
 | low    | 7   | `WGl`  | Sets `ctrl_eor`: XOR mask applied to `ctrl_main` each frame before emit |
 | low    | 5   | `AD`   | Sets the voice's attack/decay byte (emitted to `$D405`)     |
 | low    | 4   | `SR`   | Sets the voice's sustain/release byte (emitted to `$D406`)  |
-| low    | 3   | `TR`   | Sets `current_note`: plain 8-bit add to transpose buffer (= last GATE_N note), no mask, result wraps at $FF |
+| low    | 3   | `TR`   | Sets `current_note`: bit 7 set = absolute `byte & $7F`, else `(transpose buffer + byte) & $7F` (older replays: plain 8-bit add, no mask) |
 | low    | 2   | `AF`   | Sets `slide_mode`: `$00` = no slide, `$01..$7F` = portamento, `$80..$FF` = active slide |
 | low    | 1   | `PW`   | Sets `pulse_hi = byte`, `pulse_lo = byte & $F0` (12-bit `$YX` PW encoding; emitted to `$D402/$D403`) |
 | high   | 7   | `PS`   | Sets `ps_depth`: pulse-width sweep depth + direction (bit 7 = direction) |

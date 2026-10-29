@@ -18,6 +18,8 @@ Top-level API:
   runtime-state page.
 * :class:`SidcallFrame` — one row of a sidTAB cascade walk
   starting from a given row index.
+* :class:`Tune` — the song as its player reads it, in the ``defmon.lark``
+  grammar (``docs/grammar.md``): decode, text, canonical form, write back.
 * :class:`DefmonPlayer` — per-frame SID register player that runs
   the tune's own relocatable replay on a jennings 6502 (byte-exact
   against the sidtrace oracle over real HVSC tunes).
@@ -66,6 +68,7 @@ from pydefmon.defmon import (
     STANDARD_SNAPSHOT_SIZE,
 )
 from pydefmon.defmon_player import DefmonPlayer
+from pydefmon.tune import Event, Jump, Play, Row, Tune
 
 __all__ = [
     "DIFF_REGIONS",
@@ -74,18 +77,23 @@ __all__ = [
     "DefmonPlayer",
     "DefmonSidParser",
     "DefmonSong",
+    "Event",
+    "Jump",
     "LOAD_ADDRESS",
     "NOTE_PITCH_HI",
     "NOTE_PITCH_LO",
     "PREHISTORIC_LOAD_ADDRESS",
     "PREHISTORIC_WORKTUNE_ERROR",
     "PatternEvent",
+    "Play",
     "RegionDiff",
     "RegWrite",
+    "Row",
     "SidcallFrame",
     "SidtabRow",
     "STANDARD_SNAPSHOT_END",
     "STANDARD_SNAPSHOT_SIZE",
+    "Tune",
     "__version__",
     "read_reglog",
     "register_writes_from_player",
@@ -94,4 +102,4 @@ __all__ = [
     "write_reglog",
 ]
 
-__version__ = "0.11.0"
+__version__ = "0.12.0"

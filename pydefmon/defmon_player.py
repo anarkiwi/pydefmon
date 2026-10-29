@@ -54,6 +54,29 @@ def _as_image(source: PlayerSource) -> SidImage:
     return SidImage.from_bytes(Path(source).read_bytes())
 
 
+def replay_image(source: "SidImage | bytes") -> SidImage:
+    """``source`` as a PSID image with init/play (export PRGs get a synthesized header).
+
+    Raises :class:`~pydefmon.DefmonError` for a bare ``.prg`` workfile.
+    """
+    image = source if isinstance(source, SidImage) else SidImage.from_bytes(source)
+    header = image.header
+    if header is not None and (header.init_address or header.real_load_address):
+        return image
+    # Pack-save export PRG (raw $1000 / executable $0801): player located by signature.
+    replay = _sid_format.prg_replay(bytes(image.container) + bytes(image.image))
+    if replay is None:
+        raise DefmonError(
+            "DefmonPlayer needs a PSID/RSID replay with an init routine; "
+            "a bare .prg workfile carries no player -- use DefmonSong to read it"
+        )
+    load, base = replay  # init = player base, play = base + 3, PAL + 8580
+    psid = write_psid(
+        load=load, init=base, play=base + 3, image=bytes(image.image), flags=0x20
+    )
+    return SidImage.from_bytes(psid)
+
+
 class DefmonPlayer(EmuPlayer):
     """Per-frame SID register player for a defMON PSID/RSID replay.
 
@@ -76,26 +99,8 @@ class DefmonPlayer(EmuPlayer):
     """
 
     def __init__(self, source: PlayerSource, *, subtune: "int | None" = None) -> None:
-        image = _as_image(source)
+        image = replay_image(_as_image(source))
         header = image.header
-        if header is None or not (header.init_address or header.real_load_address):
-            # Pack-save export PRG (raw $1000 / executable $0801): player located by signature.
-            replay = _sid_format.prg_replay(bytes(image.container) + bytes(image.image))
-            if replay is None:
-                raise DefmonError(
-                    "DefmonPlayer needs a PSID/RSID replay with an init routine; "
-                    "a bare .prg workfile carries no player -- use DefmonSong to read it"
-                )
-            load, base = replay  # init = player base, play = base + 3, PAL + 8580
-            psid = write_psid(
-                load=load,
-                init=base,
-                play=base + 3,
-                image=bytes(image.image),
-                flags=0x20,
-            )
-            image = SidImage.from_bytes(psid)
-            header = image.header
         init = header.init_address or header.real_load_address
         play = header.play_address or init
         if subtune is None:

@@ -1,0 +1,41 @@
+// defMON song grammar: the song as the replay player reads it.
+//
+// Only what the player consumes is expressible: the arranger rows its walker
+// reaches, the events of each reachable pattern up to its ALT step, and the
+// sidTAB rows its cascade fetches. JP rows are not rows here -- they are the
+// successor edge (``-> $nn``) of the row before them, and pattern slots
+// name the row a JP resolves to. Event times are main ticks from the
+// pattern's first step; an event with duration nibble ``d`` lasts ``d + 2``
+// ticks, so empty steps are only time and never appear.
+
+start: setting* chip+ pattern* row*
+
+setting: "jumps" JUMPS              -> jumps
+       | "start" HEX+               -> starts
+       | "tempo" HEX "x" INT        -> tempo
+       | "stereo" HEX               -> stereo
+
+chip: "sid" INT step+
+step: HEX ":" HEX HEX HEX           -> play
+    | HEX ":" "jump" HEX ["x" INT]  -> jump
+
+pattern: "pattern" HEX event*
+event: INT ":" gate* ["end" INT]
+gate: "a" HEX                       -> gate_a
+    | "b" HEX                       -> gate_b
+    | "n" HEX                       -> gate_n
+
+row: "row" HEX column* (hold | stop)
+column: COLUMN HEX
+hold: "hold" INT "->" HEX
+stop: "stop"
+
+JUMPS: "counted" | "uncounted"
+COLUMN: "WGh" | "WGl" | "AD" | "SR" | "TR" | "AF" | "PW" | "PS" | "RE" | "FV" | "CP" | "ACID"
+HEX: /\$[0-9a-fA-F]+/
+COMMENT: /#[^\n]*/
+
+%import common.INT
+%import common.WS
+%ignore WS
+%ignore COMMENT

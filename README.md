@@ -49,6 +49,9 @@ for reg, value in player.play_frame():      # reg is a 0..24 SID register offset
 grid = DefmonPlayer("tune.sid").render_grid(250)   # 250 x 25-register frames
 ```
 
+`Tune.from_song(song)` reduces a song to what its player reads, as text in a
+[lark grammar](docs/grammar.md) with a canonical form for semantic comparison.
+
 See [docs/usage.md](docs/usage.md) for editing, the register-write API, and the
 shared `pysidtracker` command line (`info` / `reglog` / `wav`, which pydefmon
 plugs into), and [docs/format.md](docs/format.md) for the canonical file-format

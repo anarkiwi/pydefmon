@@ -4,7 +4,8 @@ pydefmon ships no CLI of its own: it registers a
 :class:`~pysidtracker.SidFormat` on the ``pysidtracker.formats`` entry-point
 group (see ``pyproject.toml``), so the shared ``pysidtracker info / reglog /
 wav`` tool recognises a defMON replay by content and renders it through
-:class:`~pydefmon.DefmonPlayer`.
+:class:`~pydefmon.DefmonPlayer`; ``pysidtracker snapshot`` digests the decoded
+RAM image and the canonical song grammar (:class:`~pydefmon.Tune`) as probes.
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ from pydefmon import _sid_format
 from pydefmon.defmon import DefmonSidParser, DefmonSong
 from pydefmon._variant import detect_variant
 from pydefmon.defmon_player import DefmonPlayer
+from pydefmon.tune import Tune
 
 
 def _metadata(song: DefmonSong) -> Sequence:
@@ -67,4 +69,8 @@ def defmon_format() -> SidFormat:
         variant=detect_variant,
         facet_sites=_facet_sites,
         describe=lambda song: [f"snapshot: {len(song.snapshot)} bytes"],
+        probes={
+            "snapshot": lambda song: bytes(song.snapshot),
+            "tune": lambda song: str(Tune.from_song(song).canonical()).encode(),
+        },
     )

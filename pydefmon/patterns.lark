@@ -1,0 +1,45 @@
+// defMON pattern streams as the player walks them, one latin-1 character per
+// byte (pysidtracker.ByteGrammar). A step's flag byte carries ALT ($80), the
+// gates a ($40), b ($20) and n ($10) and the duration nibble; a stream ends
+// after its ALT step, or after the 32 steps a pattern holds.
+//
+// editor: the editor's live player reads 4-byte steps, payload a, b, note.
+// packed: the replay player reads one payload byte per set gate, in that order.
+// The 32nd step without an ALT is its own rule so that only a stream's last
+// step can be followed by the bytes stored after it (_TAIL).
+
+%import bytes (BYTE, _TAIL)
+
+editor: editor_step~0..31 EDIT_ALT BYTE BYTE BYTE _TAIL?
+      | editor_step~31 editor_last _TAIL?
+editor_step: EDIT_STEP BYTE BYTE BYTE
+editor_last: EDIT_STEP BYTE BYTE BYTE
+
+packed: packed_step~0..31 packed_alt _TAIL?
+      | packed_step~31 packed_last _TAIL?
+packed_step: S | SA BYTE | SB BYTE | SN BYTE
+           | SAB BYTE BYTE | SAN BYTE BYTE | SBN BYTE BYTE | SABN BYTE BYTE BYTE
+packed_last: S | SA BYTE | SB BYTE | SN BYTE
+           | SAB BYTE BYTE | SAN BYTE BYTE | SBN BYTE BYTE | SABN BYTE BYTE BYTE
+packed_alt: A | AA BYTE | AB BYTE | AN BYTE
+          | AAB BYTE BYTE | AAN BYTE BYTE | ABN BYTE BYTE | AABN BYTE BYTE BYTE
+
+EDIT_STEP: /[\x00-\x7f]/
+EDIT_ALT: /[\x80-\xff]/
+
+S: /[\x00-\x0f]/
+SN: /[\x10-\x1f]/
+SB: /[\x20-\x2f]/
+SBN: /[\x30-\x3f]/
+SA: /[\x40-\x4f]/
+SAN: /[\x50-\x5f]/
+SAB: /[\x60-\x6f]/
+SABN: /[\x70-\x7f]/
+A: /[\x80-\x8f]/
+AN: /[\x90-\x9f]/
+AB: /[\xa0-\xaf]/
+ABN: /[\xb0-\xbf]/
+AA: /[\xc0-\xcf]/
+AAN: /[\xd0-\xdf]/
+AAB: /[\xe0-\xef]/
+AABN: /[\xf0-\xff]/

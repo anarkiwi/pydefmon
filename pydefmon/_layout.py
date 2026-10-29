@@ -3,12 +3,14 @@
 :mod:`pydefmon._sid_format` (editor-layout packed replays) and
 :mod:`pydefmon._goto80_format` (the compact Goto80 runtime) both re-expand a
 replay into the editor's ``$1800..$7166`` snapshot; the geometry of that
-snapshot, the packed-pattern walk and the sidTAB row relocation live here.
+snapshot, the pattern-stream grammar (``patterns.lark``) and the sidTAB row
+relocation live here.
 """
 
 from __future__ import annotations
 
-from typing import Callable, Iterator
+from lark import Transformer, v_args
+from pysidtracker import ByteGrammar, Parsed, SidImage
 
 LOAD_ADDRESS = 0x1800
 SNAPSHOT_END = 0x7167
@@ -21,7 +23,6 @@ GATE_PATTERN_MARKER_ADDR = 0x7162
 
 PATTERN_BANK = 0x1F00
 PATTERN_STRIDE = 0x80
-STEPS_PER_PATTERN = 32
 SIDTAB_BANK = 0x5F00
 SIDTAB_ROW_STRIDE = 15
 
@@ -31,50 +32,76 @@ FLAG_GATE_B = 0x20
 FLAG_GATE_N = 0x10
 GATE_BITS = (FLAG_GATE_A, FLAG_GATE_B, FLAG_GATE_N)  # payload order: a, b, note
 
-Reader = Callable[[int], int]
+Step = tuple[int, int, int, int]
 
 
-def walk_pattern(rd: Reader, start: int) -> Iterator[bytes]:
-    """Yield a packed pattern body's steps as editor-layout 4-byte events.
+class EditorPattern(tuple):
+    """A pattern's steps, ``(flag, a, b, note)`` each, in the editor's 4-byte form."""
 
-    Bodies are variable length: a flag byte then one payload byte per set gate
-    bit (``$40`` slot_a, ``$20`` slot_b, ``$10`` note), which is exactly what
-    the player's stream pointer advances by ($11BD: ``TYA / CLC / ADC $1186``).
-    Stops after the ALT (``$80``) step, or at 32 steps. ``rd`` reads one byte at
-    an absolute address.
-    """
-    pos = start
-    for _ in range(STEPS_PER_PATTERN):
-        flag = rd(pos)
-        pos += 1
-        event = bytearray(4)
-        event[0] = flag
-        for slot, gate in enumerate(GATE_BITS):
-            if flag & gate:
-                event[slot + 1] = rd(pos)
-                pos += 1
-        yield bytes(event)
-        if flag & FLAG_ALT:
-            return
+    def to_bytes(self) -> bytes:
+        return bytes(b for step in self for b in step)
 
 
-def store_pattern(snap: bytearray, rd: Reader, pat: int, start: int) -> None:
-    """Expand the packed body at ``start`` into pattern ``pat``'s fixed steps."""
+class PackedPattern(tuple):
+    """A pattern's steps in the replay's form: a payload byte per set gate."""
+
+    def to_bytes(self) -> bytes:
+        return bytes(
+            b
+            for flag, *payload in self
+            for b in (flag, *(v for gate, v in zip(GATE_BITS, payload) if flag & gate))
+        )
+
+
+@v_args(inline=True)
+class _ToSteps(Transformer):
+    # pylint: disable=missing-function-docstring
+
+    def editor_step(self, flag, a, b, note) -> Step:
+        return ord(flag), ord(a), ord(b), ord(note)
+
+    def packed_step(self, flag, *payload) -> Step:
+        value = ord(flag)
+        given = iter(payload)
+        a, b, note = (ord(next(given)) if value & g else 0 for g in GATE_BITS)
+        return value, a, b, note
+
+    packed_alt = packed_last = packed_step
+    editor_last = editor_step
+
+    def editor(self, *items) -> Parsed:
+        steps = [i for i in items if isinstance(i, tuple)]
+        if len(items) > len(steps):
+            steps.append(tuple(ord(t) for t in items[len(steps) :]))
+        model = EditorPattern(steps)
+        return Parsed(model, len(model.to_bytes()))
+
+    def packed(self, *steps) -> Parsed:
+        model = PackedPattern(steps)
+        return Parsed(model, len(model.to_bytes()))
+
+
+#: The pattern streams of both forms; start rules ``editor`` and ``packed``.
+PATTERN_STREAMS = ByteGrammar(
+    __package__, "patterns.lark", ("editor", "packed"), _ToSteps()
+)
+
+
+def store_pattern(snap: bytearray, image: SidImage, pat: int, start: int) -> None:
+    """Expand the packed stream at ``start`` into pattern ``pat``'s fixed steps."""
+    steps = PATTERN_STREAMS.read(image, start, "packed", f"pattern {pat}").model
     dst = PATTERN_BANK + pat * PATTERN_STRIDE - LOAD_ADDRESS
-    for ev, event in enumerate(walk_pattern(rd, start)):
-        d = dst + ev * 4
-        if 0 <= d and d + 4 <= len(snap):
-            snap[d : d + 4] = event
+    body = EditorPattern(steps).to_bytes()
+    snap[dst : dst + len(body)] = body
 
 
-def relocate_sidtab_row(snap: bytearray, rd: Reader, y: int, src: int) -> int:
+def relocate_sidtab_row(snap: bytearray, image: SidImage, y: int, src: int) -> int:
     """Copy sidTAB row ``y``'s body from ``src`` into its fixed ``$5F00`` slot.
 
     Returns the slot address (``$5F00 + y * 15``).
     """
     dst = SIDTAB_BANK + y * SIDTAB_ROW_STRIDE
-    for k in range(SIDTAB_ROW_STRIDE):
-        d = dst + k - LOAD_ADDRESS
-        if 0 <= d < len(snap):
-            snap[d] = rd(src + k)
+    snap[dst - LOAD_ADDRESS : dst - LOAD_ADDRESS + SIDTAB_ROW_STRIDE] = image.window(
+        src, SIDTAB_ROW_STRIDE
+    )
     return dst

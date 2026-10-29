@@ -8,10 +8,7 @@ keep the waveform (or the reverse). Nothing toggles either byte between fetches.
 import itertools
 import unittest
 
-from pydefmon import DefmonPlayer, Tune
-from pydefmon._worktune_oracle import editor_replay
-
-from tests._support import editor_image_bytes
+from tests._support import editor_grid
 
 _CTRL = 4  # voice 1 control register, $D404
 _HOLD = 6
@@ -28,11 +25,7 @@ pattern $01
 
 def _ctrl_runs(rows: str, frames: int = 48) -> list[tuple[int, int]]:
     """(value, frames) runs of voice 1's ``$D404`` after the note; the held last run is None."""
-    editor = editor_image_bytes()
-    if editor is None:
-        raise unittest.SkipTest("defMON editor image unavailable")
-    prg = Tune.parse(_HEAD + rows).to_song().to_bytes()
-    grid = DefmonPlayer(editor_replay(editor, prg)).render_grid(frames)
+    grid = editor_grid(_HEAD + rows, frames)
     runs = [(k, len(list(g))) for k, g in itertools.groupby(f[_CTRL] for f in grid)]
     return runs[1:-1] + [(runs[-1][0], None)]
 

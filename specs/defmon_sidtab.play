@@ -1,0 +1,68 @@
+// defMON sidTAB cascade, two layers per voice (layer A instances 0-2 run before
+// layer B 3-5): a row holds DL+1 calls; a row whose hi pointer is 0 is a jump to
+// the row its lo byte names; bitmap bytes select which column values follow.
+spec defmon_sidtab;
+layout { rowidx, counter, rows_lo, rows_hi, dl, wgh, wgl, ad, sr, note, base, pw_lo,
+         pw_hi, ctrl, res, vol: addr; }
+cell rows_lo: u8[256] @ L.rows_lo ro;
+cell rows_hi: u8[256] @ L.rows_hi ro;
+cell dl: u8[256] @ L.dl ro;
+cell wgh: u8[3] @ L.wgh;
+cell wgl: u8[3] @ L.wgl;
+cell ad: u8[3] @ L.ad;
+cell sr: u8[3] @ L.sr;
+cell note: u8[3] @ L.note;
+cell base: u8[3] @ L.base;
+cell pw_lo: u8[3] @ L.pw_lo;
+cell pw_hi: u8[3] @ L.pw_hi;
+cell ctrl: u8[3] @ L.ctrl;
+cell res: u8 @ L.res;
+cell vol: u8 @ L.vol;
+
+machine layer[x in 0..6] {
+  cell rowidx: u8 @ L.rowidx + x;
+  cell counter: u8 @ L.counter + x;
+  step {
+    if neg(counter) {
+      return;
+    }
+    if counter != 0 {
+      counter -= 1;
+      return;
+    }
+    let eff = rowidx;
+    if rows_hi[eff] == 0 {
+      eff := rows_lo[eff];
+    }
+    stream r = word(rows_lo[eff], rows_hi[eff]) @ 0;
+    let low = next r;
+    if low & 0x40 != 0 { wgh[x % 3] := next r; }
+    if low & 0x80 != 0 { wgl[x % 3] := next r; }
+    if low & 0x20 != 0 { ad[x % 3] := next r; }
+    if low & 0x10 != 0 { sr[x % 3] := next r; }
+    if low & 0x08 != 0 {
+      let t = next r;
+      note[x % 3] := ite(t & 0x80 != 0, t & 0x7F, (base[x % 3] + t) & 0x7F);
+    }
+    if low & 0x02 != 0 {
+      let w = next r;
+      pw_hi[x % 3] := w & 0x0F;
+      pw_lo[x % 3] := w & 0xF0;
+    }
+    let high = next r;
+    if high & 0x40 != 0 { res := next r; }
+    if high & 0x20 != 0 {
+      let v = next r;
+      vol := (v & 0xF0) | 0x0F;
+    }
+    counter := dl[eff];
+    rowidx := eff + 1;
+    ctrl[x % 3] := wgh[x % 3] ^ wgl[x % 3];
+  }
+}
+
+schedule {
+  for l in 0..6 {
+    layer[l];
+  }
+}

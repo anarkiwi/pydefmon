@@ -2,8 +2,7 @@
 
 A random row is written into a real tune's memory and one voice's record is
 randomised; the interpreter runs once on the CPU and once as the spec on a copy
-of the same memory, and the whole 64 KiB, outside the stack page and the
-interpreter's scratch byte, must agree.
+of the same memory, and the whole 64 KiB, outside the stack page, must agree.
 """
 
 import random
@@ -25,7 +24,6 @@ from pydefmon._spec_layout import (
     VOICE_STRIDE,
     player_base,
     sidrow_binding,
-    sidrow_scratch,
 )
 
 SPEC = parse(
@@ -78,7 +76,7 @@ def test_sidrow_spec_equals_the_6502_interpreter(relpath):
     rng = random.Random(1)
     for _ in range(300):
         voice = rng.randrange(3)
-        binding = sidrow_binding(mem, base, voice)
+        binding = sidrow_binding(mem, base)
         for name in PER_VOICE:
             bus[binding[name] + voice * VOICE_STRIDE] = rng.randrange(256)
         for name in SHARED:
@@ -93,13 +91,12 @@ def test_sidrow_spec_equals_the_6502_interpreter(relpath):
             spec_mem.__setitem__,
             controls(program),
             None,
-            {name[4:]: 0 for name in program.inputs},
+            {"a": ROW_AT & 0xFF, "x": voice * VOICE_STRIDE},
         )
         mpu._cache.clear()
         mpu.sp, mpu.x = CPU_SP, voice * VOICE_STRIDE
         run_to_rts_until(mpu, bus, base + SIDROW_ENTRY, ROW_AT & 0xFF, set(), 100_000)
-        skip = {sidrow_scratch(mem, base), *STACK}
         differing = [
-            hex(a) for a in range(0x10000) if a not in skip and mem[a] != spec_mem[a]
+            hex(a) for a in range(0x10000) if a not in STACK and mem[a] != spec_mem[a]
         ]
         assert not differing, differing[:8]

@@ -89,13 +89,13 @@ def sidrow_scratch(mem, base: int) -> int:
     return mem[base + SIDROW_SCRATCH_OPERAND]
 
 
-def sidrow_binding(mem, base: int, voice: int) -> dict:
-    """The ``defmon_sidrow.play`` layout of the player at ``base`` in ``mem``, for ``voice``."""
+def sidrow_binding(mem, base: int) -> dict:
+    """The ``defmon_sidrow.play`` layout of the player at ``base`` in ``mem``."""
     binding = {name: base + off for name, off in SIDROW_OFFSETS.items()}
     cp = SIDROW_CP_OPERAND + base
     binding["cp"] = mem[cp] | mem[cp + 1] << 8
     binding["ptr_lo"], binding["ptr_hi"] = ROW_POINTER
-    binding["voice"] = voice
+    binding["scratch"] = sidrow_scratch(mem, base)
     return binding
 
 

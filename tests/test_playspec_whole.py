@@ -11,6 +11,7 @@ from pysidtracker import song_frames
 from pysidtracker.testing import TuneFetchError, resolve_tune
 
 from pydefmon import DefmonPlayer
+from pydefmon._spec_layout import defmon_binding, entry_base, player_bases
 
 from tests._support import (
     aligned_modulo_missed_irqs,
@@ -78,3 +79,15 @@ def test_every_row_the_spec_reads_parses_as_a_sidtab_row(relpath, song):
         player.play_frame()
     assert player.validator.results
     assert player.validator.failures() == {}
+
+
+def test_a_stereo_replay_runs_a_spec_per_copy_of_the_player():
+    path = resolve_tune("MUSICIANS/F/F7sus4/Timewarp_Spheres_2SID.sid")
+    if path is None:
+        pytest.skip("tune unavailable (offline, not cached)")
+    player = DefmonPlayer(path.read_bytes())
+    bases = player_bases(player.view())
+    assert len(bases) == 2
+    assert {entry_base(player.view(), e) for e in player._entries()} == set(bases)
+    chips = {defmon_binding(player.view(), base)["sid"] for base in bases}
+    assert chips == {0xD400, 0xD500}

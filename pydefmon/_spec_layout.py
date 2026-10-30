@@ -9,9 +9,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pysidtracker import CodePattern, find_code_first
+from pysidtracker import CodePattern, find_code_all, find_code_first
 
-from pydefmon._sid_format import _SIGNATURE_FROM_PLAYER_BASE, find_signature
+from pydefmon._sid_format import (
+    _SIG_SPEC,
+    _SIGNATURE_FROM_PLAYER_BASE,
+    find_signature,
+)
 
 SPECS = Path(__file__).resolve().parent / "specs"
 
@@ -42,6 +46,30 @@ ACID_BLOCK = (0xB5, 0xD8)
 def player_base(mem, start: int = 0, end: int = 0x10000) -> int:
     """The address of the replay player in ``mem``, from its signature."""
     return find_signature(mem, start, end) - _SIGNATURE_FROM_PLAYER_BASE
+
+
+#: The band's signature with the SID's page left open: the second copy of a stereo
+#: tune's player drives another chip.
+_COPY_PATTERN = CodePattern(_SIG_SPEC.replace(" D4", " ??"))
+
+
+def player_bases(mem) -> list:
+    """The addresses of every copy of the replay player in ``mem``: a stereo tune plays
+    one copy per chip."""
+    found = find_code_all(bytes(mem), _COPY_PATTERN)
+    return [match.addr - _SIGNATURE_FROM_PLAYER_BASE for match in found]
+
+
+def entry_base(mem, entry: int) -> int:
+    """The base of the copy of the player that ``entry`` enters.
+
+    Raises:
+        ValueError: ``entry`` is not within a copy of the player.
+    """
+    for base in player_bases(mem):
+        if base - 3 <= entry < base + 0x900:
+            return base
+    raise ValueError(f"${entry:04x} is not in a copy of the player")
 
 
 def play_entry(mem, base: int) -> int:
@@ -300,7 +328,7 @@ def band_binding(base: int) -> dict:
 #: The cutoff block's start, its end store, the reader's first instructions, and the row
 #: interpreter's: the anchors from which the blocks whose size varies with the build are found.
 _CUTOFF_START = 0xB5
-_CUTOFF_STORE = CodePattern("8D 16 D4")
+_CUTOFF_STORE = CodePattern("8D 16 ??")
 _UNCOUNTED_JUMPS = CodePattern("BE ?? ?? 10 ?? B9 ?? ?? A8 BE")
 _READER_START = CodePattern("A2 00 A0 ?? 30 ?? CE")
 _ROW_START = CodePattern("85 ?? A0 00 B1 ??")
@@ -472,7 +500,7 @@ def defmon_binding(mem, base: int, entry: "int | None" = None) -> dict:
         "rowptr_lo": mem[row + 1],
         "rowptr_hi": mem[row + 1] + 1,
         "scratch": mem[row + 0xA],
-        "sid": SID_BASE,
+        "sid": _word(mem, base + BAND_BLOCK[0] + 5) - 2,
         # the build
         "uncounted": int(uncounted),
         "plain_tr": int(

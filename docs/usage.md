@@ -151,7 +151,7 @@ Existing cases are kept; add `--prune` to drop those that now pass. `rank` write
   two). A call that overruns its period makes the replay miss the next interrupt; the
   spec costs no cycles, so `DefmonPlayer` plays that call and runs one call ahead of the
   replay's own 6502 from there. `DefmonPlayer` runs it
-  (`spec_backed`), and `tests/test_playspec_whole.py` holds it to the replay's
+  (`spec_backed`; a stereo tune with a second copy of the player gets a second instance bound to its chip), and `tests/test_playspec_whole.py` holds it to the replay's
   6502 on every play call of each oracle song: registers and all memory outside
   the stack page.
 - `register_writes_from_player` / `read_reglog` / `write_reglog` / `RegWrite` —

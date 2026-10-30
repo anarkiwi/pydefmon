@@ -29,7 +29,13 @@ from pysidtracker.header import write_psid
 from pysidtracker.playspec import SpecError, SpecPlayer, parse
 
 from pydefmon import _sid_format
-from pydefmon._spec_layout import defmon_binding, play_entries, player_base, spec_text
+from pydefmon._spec_layout import (
+    defmon_binding,
+    entry_base,
+    play_entries,
+    player_bases,
+    spec_text,
+)
 from pydefmon.defmon import DefmonError, DefmonSong
 
 PlayerSource = Union[bytes, bytearray, str, Path, SidImage, DefmonSong]
@@ -87,15 +93,17 @@ def _spec():
 
 
 def _entries(view):
-    base = player_base(view)
+    entries = set()
     try:
-        return set() if base < 0 else play_entries(view, base)
+        for base in player_bases(view):
+            entries |= play_entries(view, base)
     except ValueError:
         return set()
+    return entries
 
 
 def _bind(view, entry):
-    return defmon_binding(view, player_base(view), entry)
+    return defmon_binding(view, entry_base(view, entry), entry)
 
 
 class DefmonPlayer(SpecPlayer):

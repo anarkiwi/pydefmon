@@ -7,9 +7,10 @@ Pure-Python reader, writer, and player for
 [defMON](https://defmon.vandervecken.com) C64 tracker tunes (latest
 [V20201008](https://csdb.dk/release/?id=196474) on csdb). `DefmonPlayer`
 runs a tune's own relocatable replay on a jennings 6502 and emits the per-frame SID
-register writes, verified byte-exact against the
-[`sidtrace`](https://github.com/anarkiwi/sidtrace) `sidplayfp` oracle over real
-HVSC tunes.
+register writes, verified byte-exact over whole songs against the
+[`sidtrace`](https://github.com/anarkiwi/sidtrace) `sidplayfp` oracle on real
+HVSC tunes. The replay is also written as a
+[`pysidtracker` playspec](specs/defmon.play) that reproduces it call for call.
 
 Reads `.sid` files (PSID/RSID containers), bare `.prg` editor workfiles, and
 defMON's own pack-save export PRGs (SHIFT+P: the `$1000` raw export and the
@@ -35,6 +36,7 @@ pip install pydefmon
 ## Usage
 
 ```python
+from pysidtracker import song_frames
 from pydefmon import DefmonSong, DefmonPlayer
 
 # Read / edit a tune (either container auto-dispatches on magic).
@@ -46,7 +48,7 @@ print(song.sidtab_row(0))
 player = DefmonPlayer("tune.sid")           # bytes, path, or SidImage
 for reg, value in player.play_frame():      # reg is a 0..24 SID register offset
     ...
-grid = DefmonPlayer("tune.sid").render_grid(250)   # 250 x 25-register frames
+grid = DefmonPlayer("tune.sid").render_grid(song_frames("tune.sid"))   # whole song x 25 registers
 ```
 
 `Tune.from_song(song)` reduces a song to what its player reads, as text in a

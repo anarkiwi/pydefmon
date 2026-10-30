@@ -581,7 +581,7 @@ The `CP` sidTAB column sets the cutoff-extra add directly.
 
 The oracle test verifies byte-exact rendering across both replay-decode families
 (standard editor-layout and Goto80 compact-runtime), including CIA multi-speed
-tunes and tunes whose cutoff seeds from the V3 oscillator readback
+tunes, over each song's whole length and tunes whose cutoff seeds from the V3 oscillator readback
 (`$D41B/$D41C`). `DefmonPlayer` calls play at the tune's play-routine cadence and
 answers those reads from the SID model the PSID header names, as `sidplayfp`
 does.

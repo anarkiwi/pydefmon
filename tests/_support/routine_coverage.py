@@ -47,6 +47,38 @@ MAX_CYCLES = 2_000_000
 
 Feature = Tuple[int, int]
 
+#: Single changes to the spec that the states must tell apart from it: coverage shows the
+#: code ran, not that its result mattered.
+MUTANTS = (
+    ("c := carry(cut_lo, cut_step_lo);", "c := false;"),
+    ("if neg(out) || out < bottom {", "if neg(out) {"),
+    ("count := v3[y];", "count := v3[y] + 1;"),
+    ("ptr := ptr + u16(y);", "ptr := ptr + u16(y) + 1;"),
+    ("counter := fl & 0x0F;", "counter := fl & 0x07;"),
+    ("blk_rowidx := eff + 1;", "blk_rowidx := eff;"),
+    ("if rows_hi[eff] == 0 {", "if rows_hi[eff] == 1 {"),
+    ("res := res & mem[L.vmask + v];", "res := res;"),
+    ("mem[L.pw_lo + v] := w & 0xF0;", "mem[L.pw_lo + v] := w & 0xE0;"),
+    (
+        "if low & 0x04 != 0 { mem[L.mode + v] := next r; }",
+        "if low & 0x04 != 0 { mem[L.mode + v] := 0; }",
+    ),
+    ("cut_step_hi := ahi & 0x3F;", "cut_step_hi := ahi & 0x7F;"),
+    ("cut_hi := cut_hi - cut_step_hi - u8(!cin);", "cut_hi := cut_hi - cut_step_hi;"),
+)
+
+
+def mutated_spec(old: str, new: str):
+    """The spec with the one change ``old`` -> ``new``."""
+    from pysidtracker.playspec import parse  # pylint: disable=import-outside-toplevel
+    from pydefmon._spec_layout import (
+        spec_text,
+    )  # pylint: disable=import-outside-toplevel
+
+    text = spec_text("defmon")
+    assert old in text, old
+    return parse(text.replace(old, new, 1))
+
 
 class Routine:
     """The play routine of one replay: its code universe and the means to run trials."""

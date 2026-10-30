@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from pysidtracker.testing import resolve_tune  # noqa: E402
 
 from pydefmon._spec_layout import entry_base  # noqa: E402
-from tests._support.routine_coverage import Routine  # noqa: E402
+from tests._support.routine_coverage import MUTANTS, Routine, mutated_spec  # noqa: E402
 
 
 def search(relpath: str, trials: int) -> dict:
@@ -43,9 +43,18 @@ def search(relpath: str, trials: int) -> dict:
         chosen.append(best)
         covered |= shown[best]
     never = sorted(wanted - reachable)
+    killers = {}
+    for old, new in MUTANTS:
+        mutant = Routine(path.read_bytes(), spec=mutated_spec(old, new))
+        for seed in range(min(trials, 400)):
+            if mutant.trial(seed)[1]:
+                killers[old] = seed
+                break
+    chosen = chosen + [seed for seed in killers.values() if seed not in chosen]
     base = entry_base(routine.view, routine.entries[0])
     return {
         "seeds": sorted(chosen),
+        "killed": sorted(killers),
         "never": [[at - base, flag] for at, flag in never],
         "mismatched": mismatched[:5],
         "entries": [hex(e) for e in routine.entries],

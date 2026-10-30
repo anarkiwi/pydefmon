@@ -153,7 +153,14 @@ Existing cases are kept; add `--prune` to drop those that now pass. `rank` write
   replay's own 6502 from there. `DefmonPlayer` runs it
   (`spec_backed`; a stereo tune with a second copy of the player gets a second instance bound to its chip), and `tests/test_playspec_whole.py` holds it to the replay's
   6502 on every play call of each oracle song: registers and all memory outside
-  the stack page.
+  the stack page. `tests/test_playspec_coverage.py` also holds it to the code by what the
+  code does: for each of 15 replay builds a few random states
+  (`tests/_support/routine_coverage.py`) run every instruction the play entries reach and
+  both ways of every branch bar four dead ways (jennings' `CoverageMPU` measures this), the
+  spec and the CPU leave the same 64 KiB and SID registers on each, and twelve one-line
+  changes to the spec are told apart. `scripts/coverage_seeds.py` finds the seeds; the
+  relocated `Glow_Worm`, `Rent-A-Cop` and `Timewarp_Spheres_2SID` follow stale `$1000`
+  operands the spec does not model and are covered by the whole-song tests.
 - `register_writes_from_player` / `read_reglog` / `write_reglog` / `RegWrite` —
   the shared `py*` register-log surface.
 - `render_player_wav` / `render_player_samples` — the shared `py*` WAV/sample

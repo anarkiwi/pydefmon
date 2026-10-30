@@ -16,10 +16,18 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from pysidtracker.testing import resolve_tune  # noqa: E402
+from pysidtracker.testing import (
+    resolve_tune,
+)  # noqa: E402  pylint: disable=wrong-import-position
 
-from pydefmon._spec_layout import entry_base  # noqa: E402
-from tests._support.routine_coverage import MUTANTS, Routine, mutated_spec  # noqa: E402
+from pydefmon._spec_layout import (
+    entry_base,
+)  # noqa: E402  pylint: disable=wrong-import-position
+from tests._support.routine_coverage import (  # noqa: E402  pylint: disable=wrong-import-position
+    MUTANTS,
+    Routine,
+    mutated_spec,
+)
 
 
 def search(relpath: str, trials: int) -> dict:

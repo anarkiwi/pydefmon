@@ -105,7 +105,14 @@ class Routine:
                 compile_program(program),
                 controls(program),
             )
+        self.sid_writes: Dict[int, int] = {}
+        self.player._mpu.memory.subscribe_to_write(  # pylint: disable=protected-access
+            range(0xD400, 0xD800), self._on_sid_write
+        )
         self.instructions, self.branches = self._universe()
+
+    def _on_sid_write(self, address: int, value: int) -> None:
+        self.sid_writes[address] = value
 
     def _universe(self) -> Tuple[Set[int], Set[int]]:
         """Every instruction reachable from the entries within the player, and the branches."""
@@ -151,6 +158,8 @@ class Routine:
         mem[:] = self.mem0
         self._randomize(rng, entry, mem, bus)
         spec_mem = bytearray(mem)
+        before = bytes(mem)
+        self.sid_writes.clear()
         program, frame, state = self.programs[entry]
         frame(
             spec_mem.__getitem__,
@@ -167,6 +176,10 @@ class Routine:
             for at in range(0x10000)
             if at not in STACK and at not in SID_PAGE and mem[at] != spec_mem[at]
         ]
+        sid = self.bindings[entry]["sid"]
+        for at in range(sid, sid + 0x19):
+            if self.sid_writes.get(at, before[at]) != spec_mem[at]:
+                differing.append(at)
         return cpu.cov, differing
 
     def _randomize(self, rng: random.Random, entry: int, mem, bus) -> None:

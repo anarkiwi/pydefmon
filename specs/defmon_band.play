@@ -1,0 +1,36 @@
+// defMON SID write band, every call: each voice copies its record's pulse width,
+// frequency, sustain/release and attack/decay to its seven registers, with the control
+// register the exclusive-or of the waveform and gate bytes; then the routing byte goes to
+// $D417 and the filter mode with the volume nibble forced to $0F to $D418. The voice
+// records are VOICE bytes apart and are read through memory, as other routines write them.
+spec defmon_band;
+layout { pw_lo, pw_hi, freq_lo, freq_hi, sr, ad, wgh, wgl, res, fv, sid: addr; }
+const VOICE = 0x31;
+cell sid: u8[32] @ L.sid out;
+
+machine band[x in 0..3] {
+  step {
+    let v = u16(x * VOICE);
+    sid[x * 7 + 2] := mem[L.pw_lo + v];
+    sid[x * 7 + 3] := mem[L.pw_hi + v];
+    sid[x * 7] := mem[L.freq_lo + v];
+    sid[x * 7 + 1] := mem[L.freq_hi + v];
+    sid[x * 7 + 6] := mem[L.sr + v];
+    sid[x * 7 + 5] := mem[L.ad + v];
+    sid[x * 7 + 4] := mem[L.wgh + v] ^ mem[L.wgl + v];
+  }
+}
+
+machine filter {
+  step {
+    sid[0x17] := mem[L.res];
+    sid[0x18] := mem[L.fv] | 0x0F;
+  }
+}
+
+schedule {
+  for v in 0..3 {
+    band[v];
+  }
+  filter;
+}

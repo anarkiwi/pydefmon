@@ -144,8 +144,14 @@ Existing cases are kept; add `--prune` to drop those that now pass. `rank` write
   `_walker`, `_reader`, `_cascade`, `_sidrow`, `_pitch`, `_pwsweep`, `_acid`;
   `_nmi` is the editor's NMI counter, checked against the editor's handler
   but not part of `defmon.play`). `pydefmon._spec_layout.defmon_binding`
-  binds it to a tune's relocated replay by signature. `DefmonPlayer` runs it
-  (`spec_backed`), and `tests/test_playspec_whole.py` holds it to the replay's
+  binds it to a tune's relocated replay by signature. The routine is entered at the
+  `JMP` to the band beside the player's start, at the band (called from the tune's
+  own code), or at the player's start plus six, which runs the band and cutoff slide
+  and the cascade but not the walker and readers (multi-speed tunes alternate the
+  two). A call that overruns its period makes the replay miss the next interrupt; the
+  spec costs no cycles, so `DefmonPlayer` plays that call and runs one call ahead of the
+  replay's own 6502 from there. `DefmonPlayer` runs it
+  (`spec_backed`; a stereo tune with a second copy of the player gets a second instance bound to its chip), and `tests/test_playspec_whole.py` holds it to the replay's
   6502 on every play call of each oracle song: registers and all memory outside
   the stack page.
 - `register_writes_from_player` / `read_reglog` / `write_reglog` / `RegWrite` —

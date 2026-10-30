@@ -29,7 +29,13 @@ from pysidtracker.header import write_psid
 from pysidtracker.playspec import SpecError, SpecPlayer, parse
 
 from pydefmon import _sid_format
-from pydefmon._spec_layout import defmon_binding, play_entry, player_base, spec_text
+from pydefmon._spec_layout import (
+    defmon_binding,
+    entry_base,
+    play_entries,
+    player_bases,
+    spec_text,
+)
 from pydefmon.defmon import DefmonError, DefmonSong
 
 PlayerSource = Union[bytes, bytearray, str, Path, SidImage, DefmonSong]
@@ -87,14 +93,17 @@ def _spec():
 
 
 def _entries(view):
+    entries = set()
     try:
-        return {play_entry(view, player_base(view))}
-    except (ValueError, LookupError):
+        for base in player_bases(view):
+            entries |= play_entries(view, base)
+    except ValueError:
         return set()
+    return entries
 
 
-def _bind(view, entry):  # pylint: disable=unused-argument
-    return defmon_binding(view, player_base(view))
+def _bind(view, entry):
+    return defmon_binding(view, entry_base(view, entry), entry)
 
 
 class DefmonPlayer(SpecPlayer):
@@ -116,6 +125,11 @@ class DefmonPlayer(SpecPlayer):
     Each play call runs ``pydefmon/specs/defmon.play`` bound to the replay (see
     :attr:`spec_backed`); a replay the spec does not describe runs its own 6502
     code instead, as :class:`~pysidtracker.EmuPlayer` does.
+
+    Every play call runs. The spec costs no cycles, so a call that the replay's own
+    code would have overrun into the next interrupt, which is then missed, does not
+    miss it: the grid has the call the replay dropped, and the song runs one call ahead
+    of it from there (:func:`tests._support.aligned_modulo_missed_irqs`).
 
     With ``validate`` the sidTAB rows the spec reads are parsed against the
     ``row`` rule of ``streams.lark``; ``validator.failures()`` lists those that
@@ -173,7 +187,14 @@ class DefmonPlayer(SpecPlayer):
     def _init(self, subtune: int) -> None:
         memory = bytes(self._mem)
         try:
-            super()._init(subtune)
+            try:
+                super()._init(subtune)
+            except SidParseError:
+                # A wrapper that skips the player on its first call reaches no entry.
+                entries = self._entries()
+                if not entries:
+                    raise
+                self.entry = min(entries)
             self._instance(self.entry)
         except (SidParseError, SpecError, ValueError, LookupError):
             self._mem[:] = memory

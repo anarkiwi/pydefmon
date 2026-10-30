@@ -543,9 +543,12 @@ fresh note never inherits the prior row's slide.
 * Bit 7 set (`$80..$FF`) — ADD path. `pulse_lo += (depth & $7F)` with carry into
   `pulse_hi`. On `pulse_hi == $0F` overflow, clamp `pulse_lo = $F8` and flip
   direction (XOR `depth ^= $80`).
-* Bit 7 clear (`$01..$7F`) — SUB path. `pulse_lo -= depth + 1` (the SBC runs
-  with carry clear). On `pulse_hi == 0` borrow, clamp `pulse_lo = $01` and flip
-  direction.
+* Bit 7 clear (`$01..$7F`) — SUB path. `pulse_lo -= depth + 1 - c` (an SBC):
+  `c` is the carry the same voice's pitch computation leaves in the same call, so
+  the step is `depth + 1` unless that carry is set. For an unslid note it is the
+  carry out of `pitch_lo + detune`: note `$77` (pitch low byte `$FF`) sets it for
+  the voices whose detune is 1 or 2, which then step by `depth`. On `pulse_hi == 0`
+  borrow, clamp `pulse_lo = $01` and flip direction.
 
 Because the `PW` column only writes the high nibble of `pulse_lo` (`byte & $F0`),
 tunes can't directly set `pulse_lo`'s low nibble — the PS sweep is the only way

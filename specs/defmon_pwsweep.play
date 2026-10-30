@@ -1,5 +1,6 @@
 // defMON pulse-width sweep, every call: depth $80+ adds depth & $7F with carry
-// into the high nibble, $01-$7F subtracts depth+1 (SBC, carry clear); at the
+// into the high nibble, $01-$7F subtracts depth with the borrow the entry carry leaves
+// (SBC, so depth+1 when it is clear); at the
 // 12-bit end the low byte clamps ($F8 / $01) and the direction bit flips. Voice
 // state is one record of VOICE bytes per voice.
 spec defmon_pwsweep;
@@ -26,8 +27,8 @@ machine voice[x in 0..3] {
         }
       }
     } else {
-      let b = borrow(lo, depth, true);
-      lo := lo - depth - 1;
+      let b = borrow(lo, depth, !cpu.c);
+      lo := lo - depth - u8(!cpu.c);
       if b {
         if hi == 0 {
           lo := 0x01;

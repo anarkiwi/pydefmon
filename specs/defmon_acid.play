@@ -1,9 +1,11 @@
 // defMON ACID cutoff slide: a 16-bit accumulator stepped by ADC or SBC, the
 // instruction chosen by a self-modified opcode byte in the code (an operand cell);
-// a high byte with bit 7 set, or an output below the floor, gives the floor.
+// a high byte with bit 7 set, or an output below the floor, gives the floor; an ASL in
+// place of the NOP before the store doubles the output.
 spec defmon_acid;
-layout { acc_lo, acc_hi, step_lo, step_hi, opcode, extra, floor, sid: addr; }
+layout { acc_lo, acc_hi, step_lo, step_hi, opcode, extra, floor, shift, sid: addr; }
 const SBC_IMM = 0xE9;
+const ASL_A = 0x0A;
 cell acc_lo: u8 @ L.acc_lo;
 cell acc_hi: u8 @ L.acc_hi;
 cell step_lo: u8 @ L.step_lo;
@@ -11,6 +13,7 @@ cell step_hi: u8 @ L.step_hi;
 cell opcode: u8 @ L.opcode operand;
 cell extra: u8 @ L.extra;
 cell floor: u8 @ L.floor operand;
+cell shift: u8 @ L.shift operand;
 cell sid: u8[32] @ L.sid out;
 
 machine acid {
@@ -35,6 +38,9 @@ machine acid {
     let out = acc_hi + extra + u8(c);
     if neg(out) || out < floor {
       out := floor;
+    }
+    if shift == ASL_A {
+      out := out << 1;
     }
     sid[0x16] := out;
   }

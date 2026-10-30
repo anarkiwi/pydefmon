@@ -1,12 +1,13 @@
 // defMON replay playroutine, one call: the SID write band, the cutoff slide, the
 // arranger walker, each voice's pattern step reader, the six sidTAB cascade blocks
-// (which call the row interpreter), then the pitch and pulse-width sweep of the voices
-// from the last to the first. The routine keeps its state in the operands of its own
+// (which call the row interpreter), then the pitch and pulse-width sweep of each voice,
+// from the last voice to the first, the sweep's subtract taking the carry the pitch leaves. The routine keeps its state in the operands of its own
 // instructions and in VOICE-byte records, so most cells are operands or read through memory.
 spec defmon;
 layout {
+  uncounted, plain_tr, or_ctrl, floored, shifts: flag;
   pw_lo, pw_hi, freq_lo, freq_hi, sr, ad, wgh, wgl, res, fv, sid,
-  cut_lo, cut_hi, cut_step_lo, cut_step_hi, op_lo, op_hi, extra, floor,
+  cut_lo, cut_hi, cut_step_lo, cut_step_hi, op_lo, op_hi, extra, floor, shift,
   rowptr_lo, rowptr_hi, scratch, note, note_base, mode, depth, vbit, vmask, cp, detune,
   trigger, cursor, owner, count, v1, v2, v3, pat_lo, pat_hi,
   counter, ptr_lo, ptr_hi, copy1_lo, copy1_hi, copy2_lo, copy2_hi, copy3_lo, copy3_hi,
@@ -19,12 +20,11 @@ const READER = 0x88;
 const BLOCK = 0x31;
 const ADC_IMM = 0x69;
 const SBC_IMM = 0xE9;
+const ASL_A = 0x0A;
 
 cell sid: u8[32] @ L.sid out;
 cell trigger: u8 @ L.trigger operand;
 cell cursor: u8 @ L.cursor operand;
-cell owner: u8 @ L.owner;
-cell count: u8 @ L.count;
 cell v1: u8[256] @ L.v1 ro;
 cell v2: u8[256] @ L.v2 ro;
 cell v3: u8[256] @ L.v3 ro;
@@ -37,7 +37,6 @@ cell res: u8 @ L.res;
 cell fv: u8 @ L.fv;
 cell cp: u8 @ L.cp;
 cell extra: u8 @ L.extra;
-cell floor: u8 @ L.floor operand;
 cell cut_lo: u8 @ L.cut_lo operand;
 cell cut_hi: u8 @ L.cut_hi operand;
 cell cut_step_lo: u8 @ L.cut_step_lo operand;
@@ -59,7 +58,11 @@ proc sidrow(v: u16, lo: u8) {
     if low & 0x10 != 0 { mem[L.sr + v] := next r; }
     if low & 0x08 != 0 {
       let t = next r;
-      mem[L.note + v] := ite(neg(t), t & 0x7F, (t + mem[L.note_base + v]) & 0x7F);
+      if L.plain_tr {
+        mem[L.note + v] := t + mem[L.note_base + v];
+      } else {
+        mem[L.note + v] := ite(neg(t), t & 0x7F, (t + mem[L.note_base + v]) & 0x7F);
+      }
     }
     if low & 0x04 != 0 { mem[L.mode + v] := next r; }
     if low & 0x02 != 0 {
@@ -117,7 +120,11 @@ machine band[x in 0..3] {
     sid[x * 7 + 1] := mem[L.freq_hi + v];
     sid[x * 7 + 6] := mem[L.sr + v];
     sid[x * 7 + 5] := mem[L.ad + v];
-    sid[x * 7 + 4] := mem[L.wgh + v] ^ mem[L.wgl + v];
+    if L.or_ctrl {
+      sid[x * 7 + 4] := mem[L.wgh + v] | mem[L.wgl + v];
+    } else {
+      sid[x * 7 + 4] := mem[L.wgh + v] ^ mem[L.wgl + v];
+    }
   }
 }
 
@@ -129,6 +136,8 @@ machine filter {
 }
 
 machine cutoff {
+  cell floor: u8 @ L.floor operand;
+  cell shift: u8 @ L.shift operand;
   step {
     let c = false;
     if op_hi == SBC_IMM {
@@ -144,18 +153,29 @@ machine cutoff {
       c := carry(cut_hi, cut_step_hi, cin);
       cut_hi := cut_hi + cut_step_hi + u8(cin);
     }
+    let bottom = 0;
+    if L.floored {
+      bottom := floor;
+    }
     if neg(cut_hi) {
-      cut_hi := floor;
+      cut_hi := bottom;
     }
     let out = cut_hi + extra + u8(c);
-    if neg(out) || out < floor {
-      out := floor;
+    if neg(out) || out < bottom {
+      out := bottom;
+    }
+    if L.shifts {
+      if shift == ASL_A {
+        out := out << 1;
+      }
     }
     sid[0x16] := out;
   }
 }
 
 machine walker {
+  cell owner: u8 @ L.owner;
+  cell count: u8 @ L.count;
   cell p0: u16 @ (L.ptr_lo, L.ptr_hi);
   cell p1: u16 @ (L.ptr_lo + READER, L.ptr_hi + READER);
   cell p2: u16 @ (L.ptr_lo + 2 * READER, L.ptr_hi + 2 * READER);
@@ -188,6 +208,33 @@ machine walker {
           y := y + 1;
         }
       }
+    }
+    p0 := word(mem[L.pat_lo + u16(v1[y])], mem[L.pat_hi + u16(v1[y])]);
+    p1 := word(mem[L.pat_lo + u16(v2[y])], mem[L.pat_hi + u16(v2[y])]);
+    p2 := word(mem[L.pat_lo + u16(v3[y])], mem[L.pat_hi + u16(v3[y])]);
+    cursor := y + 1;
+  }
+}
+
+machine walker_uncounted {
+  cell p0: u16 @ (L.ptr_lo, L.ptr_hi);
+  cell p1: u16 @ (L.ptr_lo + READER, L.ptr_hi + READER);
+  cell p2: u16 @ (L.ptr_lo + 2 * READER, L.ptr_hi + 2 * READER);
+  cell c0: u8 @ L.counter operand;
+  cell c1: u8 @ L.counter + READER operand;
+  cell c2: u8 @ L.counter + 2 * READER operand;
+  step {
+    if !neg(trigger) {
+      return;
+    }
+    let t = trigger & 0x0F;
+    trigger := t;
+    c0 := t;
+    c1 := t;
+    c2 := t;
+    let y = cursor;
+    if neg(v1[y]) {
+      y := v2[y];
     }
     p0 := word(mem[L.pat_lo + u16(v1[y])], mem[L.pat_hi + u16(v1[y])]);
     p1 := word(mem[L.pat_lo + u16(v2[y])], mem[L.pat_hi + u16(v2[y])]);
@@ -283,7 +330,7 @@ machine layer[k in 0..6] {
   }
 }
 
-machine pitch[x in 0..3] {
+machine voice[x in 0..3] {
   cell mode: u8 @ L.mode + x * VOICE;
   cell slide_lo: u8 @ L.slide_lo + x * VOICE;
   cell slide_hi: u8 @ L.slide_hi + x * VOICE;
@@ -291,23 +338,30 @@ machine pitch[x in 0..3] {
   cell note: u8 @ L.note + x * VOICE;
   cell freq_lo: u8 @ L.freq_lo + x * VOICE operand;
   cell freq_hi: u8 @ L.freq_hi + x * VOICE operand;
+  cell depth: u8 @ L.depth + x * VOICE;
+  cell lo: u8 @ L.pw_lo + x * VOICE;
+  cell hi: u8 @ L.pw_hi + x * VOICE;
   step {
+    let cy = false;
     let plo = mem[L.pitch_lo + u16(note)];
     let phi = mem[L.pitch_hi + u16(note)];
     if mode == 0 {
       freq_lo := plo + detune;
       freq_hi := phi;
+      cy := carry(plo, detune);
     } else {
       if !neg(mode) {
         let y = u16(mode + note);
-        let lo = mem[L.pitch_lo - 24 + y];
-        let lo_prev = mem[L.pitch_lo - 25 + y];
-        let hi = mem[L.pitch_hi - 24 + y];
-        let hi_prev = mem[L.pitch_hi - 25 + y];
-        step_lo := lo - lo_prev;
-        step_hi := hi - hi_prev - u8(lo < lo_prev);
+        let plo_prev = mem[L.pitch_lo - 25 + y];
+        let phi_prev = mem[L.pitch_hi - 25 + y];
+        let plo_step = mem[L.pitch_lo - 24 + y];
+        let phi_step = mem[L.pitch_hi - 24 + y];
+        step_lo := plo_step - plo_prev;
+        step_hi := phi_step - phi_prev - u8(plo_step < plo_prev);
         freq_lo := plo + step_lo;
-        freq_hi := phi + step_hi + u8(carry(plo, step_lo));
+        let c = carry(plo, step_lo);
+        freq_hi := phi + step_hi + u8(c);
+        cy := carry(phi, step_hi, c);
       } else {
         let r = u16((mode << 1) & 0x7F);
         let up = !(mode & 0x40 != 0);
@@ -321,17 +375,11 @@ machine pitch[x in 0..3] {
           slide_hi := slide_hi - mem[L.rate_hi + r] - u8(b);
         }
         freq_lo := plo + slide_lo;
-        freq_hi := phi + slide_hi + u8(carry(plo, slide_lo));
+        let c = carry(plo, slide_lo);
+        freq_hi := phi + slide_hi + u8(c);
+        cy := carry(phi, slide_hi, c);
       }
     }
-  }
-}
-
-machine sweep[x in 0..3] {
-  cell depth: u8 @ L.depth + x * VOICE;
-  cell lo: u8 @ L.pw_lo + x * VOICE;
-  cell hi: u8 @ L.pw_hi + x * VOICE;
-  step {
     if depth == 0 {
       return;
     }
@@ -347,8 +395,8 @@ machine sweep[x in 0..3] {
         }
       }
     } else {
-      let b = borrow(lo, depth, true);
-      lo := lo - depth - 1;
+      let b = borrow(lo, depth, !cy);
+      lo := lo - depth - u8(!cy);
       if b {
         if hi == 0 {
           lo := 0x01;
@@ -367,17 +415,18 @@ schedule {
   }
   filter;
   cutoff;
-  walker;
+  if L.uncounted {
+    walker_uncounted;
+  } else {
+    walker;
+  }
   for v in 0..3 {
     reader[v];
   }
   for k in 0..6 {
     layer[k];
   }
-  pitch[2];
-  sweep[2];
-  pitch[1];
-  sweep[1];
-  pitch[0];
-  sweep[0];
+  voice[2];
+  voice[1];
+  voice[0];
 }

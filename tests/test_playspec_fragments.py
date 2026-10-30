@@ -76,6 +76,7 @@ def test_defmon_acid_self_modified_adc_sbc(opcode, acc, step, expected):
             "opcode": 0x2000,
             "extra": 0x1004,
             "floor": 0x2011,
+            "shift": 0x2012,
             "sid": 0xD400,
         },
     )

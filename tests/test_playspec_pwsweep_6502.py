@@ -2,7 +2,7 @@
 
 Random depth and pulse width are written into a real tune's voice records; the
 sweep of one voice runs once on the CPU and once as the spec on a copy of the
-same memory, and depth and pulse width must agree.
+same memory, with the carry the entry leaves random, and depth and pulse width must agree.
 """
 
 import random
@@ -63,16 +63,18 @@ def test_pwsweep_spec_equals_the_6502_sweep(relpath):
         bus[at["depth"]] = rng.choice(EDGES + (rng.randrange(256),))
         bus[at["pw_lo"]] = rng.choice(EDGES + (rng.randrange(256),))
         bus[at["pw_hi"]] = rng.choice((0, 0x0F, rng.randrange(16)))
+        carry = rng.random() < 0.5
         spec_mem = bytearray(mem)
         frame(
             spec_mem.__getitem__,
             spec_mem.__setitem__,
             controls(program),
             None,
-            {name[4:]: 0 for name in program.inputs},
+            {"c": carry},
         )
         mpu._cache.clear()
-        mpu.sp, mpu.x, mpu.p = CPU_SP, voice * VOICE, mpu.p & ~CARRY
+        mpu.sp, mpu.x = CPU_SP, voice * VOICE
+        mpu.p = mpu.p | CARRY if carry else mpu.p & ~CARRY
         assert run_to_rts_until(mpu, bus, first, 0, {after}, 100_000)
         cells = [at[name] for name in binding]
         assert [mem[c] for c in cells] == [spec_mem[c] for c in cells]

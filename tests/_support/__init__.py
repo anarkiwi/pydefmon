@@ -229,11 +229,11 @@ def editor_grid(song_text: str, frames: int) -> list:
     return editor_player(song_text).render_grid(frames)
 
 
-def spec_player(data: bytes, spec_name: str, entry_offsets: "dict[int, callable]"):
+def spec_player(data: bytes, spec_name: str, binding, *, subtune: "int | None" = None):
     """A :class:`~pysidtracker.playspec.SpecPlayer` of the replay ``data`` that runs
-    ``specs/<spec_name>.play`` for each call into the player's code at the offsets in
-    ``entry_offsets`` (offset from the player base -> ``binding(view, base)``) and the
-    replay's own 6502 for everything else.
+    ``specs/<spec_name>.play`` for each call of the player's play entry, bound at the
+    player base by ``binding(view, base)``, and the tune's own code around it;
+    ``subtune`` is 0-based (default: the start song).
     """
     # pylint: disable=import-outside-toplevel
     from pathlib import Path
@@ -243,14 +243,7 @@ def spec_player(data: bytes, spec_name: str, entry_offsets: "dict[int, callable]
     from pysidtracker.cadence import playroutine_cadence
     from pysidtracker.playspec import SpecPlayer, parse
 
-    from pydefmon._spec_layout import player_base
-
-    class _Player(SpecPlayer):
-        """The first modelled entry stands in for the probe of the play routine, which
-        need not reach one on its first call."""
-
-        def _probe(self, play):
-            return min(self._entries())
+    from pydefmon._spec_layout import play_entry, player_base
 
     spec = parse(
         (
@@ -260,28 +253,51 @@ def spec_player(data: bytes, spec_name: str, entry_offsets: "dict[int, callable]
     image = SidImage.from_bytes(data)
     header = image.header
     init = header.init_address or header.real_load_address
-    subtune = (header.start_song or 1) - 1
-    entry_of = {}
-
-    def entries(view):
-        base = player_base(view)
-        entry_of.update({base + off: (base, off) for off in entry_offsets})
-        return set(entry_of)
-
-    def bind(view, entry):
-        base, off = entry_of[entry]
-        return entry_offsets[off](view, base)
-
-    return _Player(
+    play = header.play_address or init
+    if subtune is None:
+        subtune = (header.start_song or 1) - 1
+    return SpecPlayer(
         spec,
         image.image,
         image.load,
         init,
-        header.play_address or init,
+        play,
         subtune,
-        bind=bind,
-        entries=entries,
+        bind=lambda view, entry: binding(view, player_base(view)),
+        entries=lambda view: {play_entry(view, player_base(view))},
         illegal_opcodes=True,
         sid_model=reg.sid_model_for_flags(header.flags),
         cycles_per_frame=playroutine_cadence(image, subtune=subtune).cycles_per_call,
     )
+
+
+def assert_same_every_call(plain, other, frames: int) -> None:
+    """Play ``frames`` calls of both players; after each, their register writes and the
+    whole 64 KiB outside the stack page must be equal. ``other`` is a
+    :class:`~pysidtracker.playspec.SpecPlayer`: it must have run its spec exactly as many
+    times as ``plain`` executed the instruction at the spec's entry, and at least once.
+    """
+    # pylint: disable=protected-access
+    runs, hits = [0], [0]
+    run, entry, step = other._run, other.entry, plain._mpu.step
+
+    def counting_run(address):
+        runs[0] += 1
+        run(address)
+
+    def counting_step():
+        hits[0] += plain._mpu.pc == entry
+        return step()
+
+    other._run, plain._mpu.step = counting_run, counting_step
+    for frame in range(frames):
+        assert plain.play_frame() == other.play_frame(), f"registers at call {frame}"
+        ram, mem = plain._mem, other._mem
+        if ram[:0x100] != mem[:0x100] or ram[0x200:] != mem[0x200:]:
+            differing = [
+                hex(a)
+                for a in range(0x10000)
+                if not 0x100 <= a < 0x200 and ram[a] != mem[a]
+            ]
+            raise AssertionError(f"memory at call {frame}: {differing[:8]}")
+    assert runs[0] == hits[0] > 0, f"the spec ran {runs[0]} times, the replay {hits[0]}"

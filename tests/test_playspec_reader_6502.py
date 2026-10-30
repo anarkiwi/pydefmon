@@ -16,7 +16,7 @@ from pysidtracker.playspec.pyexec import controls
 from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import (
+from pydefmon.spec import (
     spec_text,
     READER_START,
     READER_STRIDE,

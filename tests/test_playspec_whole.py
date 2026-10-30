@@ -11,7 +11,7 @@ from pysidtracker import song_frames
 from pysidtracker.testing import TuneFetchError, resolve_tune
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import defmon_binding, entry_base, player_bases
+from pydefmon.spec import defmon_binding, entry_base, player_bases
 
 from tests._support import (
     aligned_modulo_missed_irqs,

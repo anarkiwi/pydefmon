@@ -9,6 +9,12 @@ layout { voice: byte; mode, acc_lo, acc_hi, detune, note, freq_lo, freq_hi, pitc
 const VOICE = 0x31;
 cell step_lo: u8 @ L.step_lo operand;
 cell step_hi: u8 @ L.step_hi operand;
+cell pitch_lo: u8[256] @ L.pitch_lo ro notes(lo, -24);
+cell pitch_hi: u8[256] @ L.pitch_hi ro notes(hi, -24);
+cell pitch_lo_prev: u8[256] @ L.pitch_lo - 25 ro notes(lo, -49);
+cell pitch_hi_prev: u8[256] @ L.pitch_hi - 25 ro notes(hi, -49);
+cell pitch_lo_step: u8[256] @ L.pitch_lo - 24 ro notes(lo, -48);
+cell pitch_hi_step: u8[256] @ L.pitch_hi - 24 ro notes(hi, -48);
 
 machine voice[x in 0..3] {
   cell mode: u8 @ L.mode + x * VOICE;
@@ -19,18 +25,18 @@ machine voice[x in 0..3] {
   cell freq_lo: u8 @ L.freq_lo + x * VOICE operand;
   cell freq_hi: u8 @ L.freq_hi + x * VOICE operand;
   step {
-    let plo = mem[L.pitch_lo + u16(note)];
-    let phi = mem[L.pitch_hi + u16(note)];
+    let plo = pitch_lo[note];
+    let phi = pitch_hi[note];
     if mode == 0 {
       freq_lo := plo + detune;
       freq_hi := phi;
     } else {
       if !neg(mode) {
-        let y = u16(mode + note);
-        let lo = mem[L.pitch_lo - 24 + y];
-        let lo_prev = mem[L.pitch_lo - 25 + y];
-        let hi = mem[L.pitch_hi - 24 + y];
-        let hi_prev = mem[L.pitch_hi - 25 + y];
+        let y = mode + note;
+        let lo = pitch_lo_step[y];
+        let lo_prev = pitch_lo_prev[y];
+        let hi = pitch_hi_step[y];
+        let hi_prev = pitch_hi_prev[y];
         step_lo := lo - lo_prev;
         step_hi := hi - hi_prev - u8(lo < lo_prev);
         freq_lo := plo + step_lo;

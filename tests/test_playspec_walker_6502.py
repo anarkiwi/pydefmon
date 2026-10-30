@@ -16,7 +16,7 @@ from pysidtracker.playspec.pyexec import controls
 from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import spec_text, WALKER_BLOCK, player_base, walker_binding
+from pydefmon.spec import spec_text, WALKER_BLOCK, player_base, walker_binding
 
 SPEC = parse(spec_text("defmon_walker"))
 TUNES = (

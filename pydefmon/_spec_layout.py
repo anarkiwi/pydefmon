@@ -45,18 +45,19 @@ def player_base(mem, start: int = 0, end: int = 0x10000) -> int:
 
 
 def play_entry(mem, base: int) -> int:
-    """The address the player's play routine is entered at.
+    """The address of the player's play entry: the ``JMP`` to its SID write band.
 
-    The ``JMP`` to the SID write band beside the player's start, which the tune's own
-    play address may wrap and may bypass to enter the band alone; else the band
-    itself, which a ``JSR`` from the tune's own code calls.
+    A tune's own play address may wrap it, and its distance from ``base`` varies.
+
+    Raises:
+        ValueError: no such ``JMP`` is next to the player's start.
     """
     band = base + BAND_BLOCK[0]
-    target = bytes((band & 0xFF, band >> 8))
+    jump = bytes((0x4C, band & 0xFF, band >> 8))
     for at in range(base - 3, base + 0x10):
-        if mem[at] == 0x4C and bytes(mem[at + 1 : at + 3]) == target:
+        if bytes(mem[at : at + 3]) == jump:
             return at
-    return band
+    raise ValueError(f"no play entry jumps to the band at ${band:04x}")
 
 
 def acid_binding(base: int) -> dict:

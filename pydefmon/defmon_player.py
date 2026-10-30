@@ -32,6 +32,10 @@ from pydefmon import _sid_format
 from pydefmon._spec_layout import defmon_binding, play_entry, player_base, spec_text
 from pydefmon.defmon import DefmonError, DefmonSong
 
+#: Play calls closer together than this can overrun their period; the spec costs no
+#: cycles, so it cannot tell when the replay's own code is late and drops a call.
+MIN_SPEC_PERIOD = 4000
+
 PlayerSource = Union[bytes, bytearray, str, Path, SidImage, DefmonSong]
 
 
@@ -88,7 +92,12 @@ def _spec():
 
 def _entries(view):
     base = player_base(view)
-    return set() if base < 0 else {play_entry(view, base)}
+    if base < 0:
+        return set()
+    try:
+        return {play_entry(view, base)}
+    except ValueError:
+        return set()
 
 
 def _bind(view, entry):  # pylint: disable=unused-argument
@@ -168,6 +177,8 @@ class DefmonPlayer(SpecPlayer):
                 if not entries:
                     raise
                 self.entry = min(entries)
+            if self._period and self._period < MIN_SPEC_PERIOD:
+                raise SidParseError("play calls too close for the spec")
             self._instance(self.entry)
         except (SidParseError, SpecError, ValueError, LookupError):
             self._mem[:] = memory

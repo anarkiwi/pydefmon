@@ -1,0 +1,53 @@
+// defMON cadence and voices: every NMI computes pitch (per-voice detune
+// +0/+1/+2 on the low byte with no carry); every L.per_tick-th NMI is a main tick
+// that also advances the voices' step counters. Stereo builds run voices 3-5 on SID#2.
+spec defmon_nmi;
+layout { nmis, per_tick, ticks, note, pitch_lo, pitch_hi, sid, sid2: addr; stereo: flag; }
+cell nmis: u8 @ L.nmis;
+cell per_tick: u8 @ L.per_tick;
+cell pitch_lo: u8[256] @ L.pitch_lo ro;
+cell pitch_hi: u8[256] @ L.pitch_hi ro;
+cell sid: u8[32] @ L.sid out;
+cell sid2: u8[32] @ L.sid2 out;
+
+machine clock {
+  signal main: bool = false;
+  step {
+    nmis += 1;
+    if nmis >= per_tick {
+      nmis := 0;
+      main := true;
+    }
+  }
+}
+
+machine voice[x in 0..6] {
+  cell ticks: u8 @ L.ticks + x;
+  cell note: u8 @ L.note + x;
+  step {
+    if clock.main {
+      ticks += 1;
+    }
+    let lo = pitch_lo[note] + x % 3;
+    let hi = pitch_hi[note];
+    if x < 3 {
+      sid[x * 7] := lo;
+      sid[x * 7 + 1] := hi;
+    } else {
+      sid2[x % 3 * 7] := lo;
+      sid2[x % 3 * 7 + 1] := hi;
+    }
+  }
+}
+
+schedule {
+  clock;
+  for v in 0..3 {
+    voice[v];
+  }
+  if L.stereo {
+    for v in 3..6 {
+      voice[v];
+    }
+  }
+}

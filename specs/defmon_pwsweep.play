@@ -1,0 +1,45 @@
+// defMON pulse-width sweep, every call: depth $80+ adds depth & $7F with carry
+// into the high nibble, $01-$7F subtracts depth+1 (SBC, carry clear); at the
+// 12-bit end the low byte clamps ($F8 / $01) and the direction bit flips.
+spec defmon_pwsweep;
+layout { depth, pw_lo, pw_hi: addr; }
+
+machine voice[x in 0..3] {
+  cell depth: u8 @ L.depth + x;
+  cell lo: u8 @ L.pw_lo + x;
+  cell hi: u8 @ L.pw_hi + x;
+  step {
+    if depth == 0 {
+      return;
+    }
+    if neg(depth) {
+      let c = carry(lo, depth & 0x7F);
+      lo += depth & 0x7F;
+      if c {
+        if hi == 0x0F {
+          lo := 0xF8;
+          depth ^= 0x80;
+        } else {
+          hi += 1;
+        }
+      }
+    } else {
+      let b = borrow(lo, depth, true);
+      lo := lo - depth - 1;
+      if b {
+        if hi == 0 {
+          lo := 0x01;
+          depth ^= 0x80;
+        } else {
+          hi -= 1;
+        }
+      }
+    }
+  }
+}
+
+schedule {
+  for v in 0..3 {
+    voice[v];
+  }
+}

@@ -197,11 +197,16 @@ class TestWriteBand(unittest.TestCase):
                     "row $01 WGh $40 WGl $01 stop\n"
                 )
                 player = editor_player(text)
+                self.assertTrue(player.spec_backed)
                 writes = []
-                # pylint: disable-next=protected-access
-                player._mpu.memory.subscribe_to_write(
-                    range(0xD400, 0xD419), lambda addr, _: writes.append(addr - 0xD400)
-                )
+                store = player._store  # pylint: disable=protected-access
+
+                def record(addr, value):
+                    if 0xD400 <= addr < 0xD419:
+                        writes.append(addr - 0xD400)
+                    store(addr, value)
+
+                player._store = record  # pylint: disable=protected-access
                 for _ in range(6):
                     writes.clear()
                     player.play_frame()

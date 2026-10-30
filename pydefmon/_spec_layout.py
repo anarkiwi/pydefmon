@@ -321,6 +321,11 @@ def _operands(mem, opcode: int, start: int, end: int) -> list:
     return found
 
 
+#: The reader's gate branch skips the load alone (its ``INY`` runs for every field)
+#: in the build that keeps each pattern step at four bytes.
+_FIXED_EVENT_SKIP = 0x09
+
+
 def defmon_binding(mem, base: int) -> dict:
     """The ``defmon.play`` layout of the player at ``base`` in ``mem``.
 
@@ -432,5 +437,6 @@ def defmon_binding(mem, base: int) -> dict:
         "or_ctrl": int(mem[base + _BAND_CONTROL] == OR_OPCODE),
         "floored": int(length >= _CUTOFF_WITH_FLOOR),
         "shifts": int(length >= _CUTOFF_WITH_SHIFT),
+        "fixed": int(mem[reader + 0x3B + 2] == _FIXED_EVENT_SKIP),
     }
     return binding

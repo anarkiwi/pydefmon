@@ -229,38 +229,27 @@ def editor_grid(song_text: str, frames: int) -> list:
     return editor_player(song_text).render_grid(frames)
 
 
-def spec_player(data: bytes, spec_name: str, binding, *, subtune: "int | None" = None):
-    """A :class:`~pysidtracker.playspec.SpecPlayer` of the replay ``data`` that runs
-    ``specs/<spec_name>.play`` for each call of the player's play entry, bound at the
-    player base by ``binding(view, base)``, and the tune's own code around it;
+def replay_player(data: bytes, *, subtune: "int | None" = None):
+    """The replay ``data`` on the CPU alone: an :class:`~pysidtracker.EmuPlayer`, the
+    reference the playspec-backed :class:`~pydefmon.DefmonPlayer` is held to;
     ``subtune`` is 0-based (default: the start song).
     """
     # pylint: disable=import-outside-toplevel
-    from pathlib import Path
-
-    from pysidtracker import SidImage
+    from pysidtracker import EmuPlayer, SidImage
     from pysidtracker import registers as reg
     from pysidtracker.cadence import playroutine_cadence
-    from pysidtracker.playspec import SpecPlayer, parse
 
-    from pydefmon._spec_layout import play_entry, player_base, spec_text
-
-    spec = parse(spec_text(spec_name))
     image = SidImage.from_bytes(data)
     header = image.header
     init = header.init_address or header.real_load_address
-    play = header.play_address or init
     if subtune is None:
         subtune = (header.start_song or 1) - 1
-    return SpecPlayer(
-        spec,
+    return EmuPlayer(
         image.image,
         image.load,
         init,
-        play,
+        header.play_address or init,
         subtune,
-        bind=lambda view, entry: binding(view, player_base(view)),
-        entries=lambda view: {play_entry(view, player_base(view))},
         illegal_opcodes=True,
         sid_model=reg.sid_model_for_flags(header.flags),
         cycles_per_frame=playroutine_cadence(image, subtune=subtune).cycles_per_call,

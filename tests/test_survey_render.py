@@ -8,9 +8,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pysidtracker import SidParseError
+from pysidtracker import SidParseError, song_frames
 from pysidtracker.sidid import sidid_signatures
-from pysidtracker.testing import resolve_tune
+from pysidtracker.testing import resolve_tune, whole_song
 
 from pydefmon import DefmonPlayer
 
@@ -37,9 +37,12 @@ def _tune(relpath):
 )
 def test_render_matches_player_and_reports_variant(relpath, layout):
     data = _tune(relpath)
-    grid, info = oracle_hvsc.render(data, 1, 60)
-    assert grid.shape == (60, 25)
-    np.testing.assert_array_equal(grid, DefmonPlayer(data, subtune=0).render_grid(60))
+    frames = song_frames(data, 1)
+    grid, info = oracle_hvsc.render(data, 1, frames)
+    assert grid.shape == (frames, 25)
+    np.testing.assert_array_equal(
+        grid, DefmonPlayer(data, subtune=0).render_grid(frames)
+    )
     assert json.loads(json.dumps(info)) == info
     assert info["variant"] == layout
     assert info["variant.src"] == "inferred(layout strategy static)"
@@ -55,17 +58,18 @@ def test_render_matches_player_and_reports_variant(relpath, layout):
 
 def test_render_selects_one_based_subtune():
     data = _tune("MUSICIANS/G/Goto80/Rent-A-Cop.sid")
-    second = oracle_hvsc.render(data, 2, 100)[0]
+    frames = song_frames(data, 2)
+    second = oracle_hvsc.render(data, 2, frames)[0]
     np.testing.assert_array_equal(
-        second, DefmonPlayer(data, subtune=1).render_grid(100)
+        second, DefmonPlayer(data, subtune=1).render_grid(frames)
     )
-    assert (second != oracle_hvsc.render(data, 1, 100)[0]).any()
+    assert (second != oracle_hvsc.render(data, 1, frames)[0]).any()
 
 
 @pytest.mark.parametrize("data", [synthetic_replay(), b"\x00\x18junk", b"PSID"])
 def test_non_defmon_raises_sid_parse_error(data):
     with pytest.raises(SidParseError):
-        oracle_hvsc.render(data, 1, 10)
+        oracle_hvsc.render(data, 1, whole_song(1))
 
 
 def test_player_regex_selects_defmon_signature():

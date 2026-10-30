@@ -17,8 +17,8 @@ from tempfile import TemporaryDirectory
 from unittest import mock
 
 from pysidtracker import formats as formats_mod
-from pysidtracker import maincli
-from pysidtracker.testing import resolve_tune
+from pysidtracker import maincli, song_frames
+from pysidtracker.testing import resolve_tune, whole_song
 
 from pydefmon.defmon import DefmonSong, PatternEvent
 from pydefmon.defmon_player import DefmonPlayer
@@ -69,7 +69,7 @@ class TestDefmonFormat(unittest.TestCase):
         song = DefmonSong()
         song.image_bytes = synthetic_replay()
         player = defmon_format().player(song)
-        self.assertEqual(len(player.render_grid(2)), 2)
+        self.assertEqual(len(player.render_grid(whole_song(2))), 2)
 
     def test_parse_carries_the_subtune_to_the_player(self):
         path = resolve_tune("MUSICIANS/G/Goto80/Rent-A-Cop.sid")
@@ -78,11 +78,15 @@ class TestDefmonFormat(unittest.TestCase):
         raw, fmt = path.read_bytes(), defmon_format()
         self.assertIsNone(fmt.parser.parse(raw).subtune)
         grids = [
-            fmt.player(fmt.parser.parse(raw, subtune=k)).render_grid(100)
+            fmt.player(fmt.parser.parse(raw, subtune=k)).render_grid(
+                song_frames(raw, k + 1)
+            )
             for k in (0, 1)
         ]
         for k, grid in enumerate(grids):
-            self.assertEqual(grid, DefmonPlayer(raw, subtune=k).render_grid(100))
+            self.assertEqual(
+                grid, DefmonPlayer(raw, subtune=k).render_grid(song_frames(raw, k + 1))
+            )
         self.assertNotEqual(grids[0], grids[1])
 
     def test_entry_point_registered(self):

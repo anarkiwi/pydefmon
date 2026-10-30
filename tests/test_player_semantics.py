@@ -242,6 +242,16 @@ class TestArranger(unittest.TestCase):
         )
         self.assertEqual(runs[:2], [(_pitch(0x31), 3 * 4), (_pitch(0x32), 4)])
 
+    def test_a_second_counted_jump_row_restarts_the_shared_count(self):
+        runs = self._notes(
+            " $00: $01 $00 $00\n $01: jump $00 x1\n $02: $02 $00 $00\n"
+            " $03: jump $00 x1\n $04: $03 $00 $00\n $05: jump $04 x0\n",
+            120,
+        )
+        pitches = [k for k, _ in runs]
+        self.assertGreater(pitches.count(_pitch(0x32)), 2)
+        self.assertNotIn(_pitch(0x33), pitches)
+
     def test_jump_onto_a_jump_row_does_not_chain(self):
         runs = self._notes(
             " $00: $01 $00 $00\n $01: jump $03 x0\n $02: $02 $00 $00\n"

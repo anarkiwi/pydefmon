@@ -1,0 +1,63 @@
+// defMON arranger walker, run on the call after a pattern's ALT step set bit 7 of
+// the trigger operand: it clears the trigger to its low nibble, loads that into the
+// three voices' step counters, then reads the arranger row under the cursor. A row
+// with V1 bit 7 is a jump to V2: V3 = 0 jumps always; otherwise the first visit to a
+// row takes it as the loop owner with count V3 and jumps, later visits count down
+// and jump until zero, then release the owner and fall through to the next row. The
+// row landed on is played without being checked. Each voice's pattern pointer is set
+// to the table entry of its arranger byte, and the cursor moves to the next row.
+spec defmon_walker;
+layout { trigger, cursor, owner, count, v1, v2, v3, ptr_lo, ptr_hi,
+         p0_lo, p0_hi, p1_lo, p1_hi, p2_lo, p2_hi, c0, c1, c2: addr; }
+cell trigger: u8 @ L.trigger operand;
+cell cursor: u8 @ L.cursor operand;
+cell owner: u8 @ L.owner;
+cell count: u8 @ L.count;
+cell v1: u8[256] @ L.v1 ro;
+cell v2: u8[256] @ L.v2 ro;
+cell v3: u8[256] @ L.v3 ro;
+cell p0: u16 @ (L.p0_lo, L.p0_hi);
+cell p1: u16 @ (L.p1_lo, L.p1_hi);
+cell p2: u16 @ (L.p2_lo, L.p2_hi);
+cell c0: u8 @ L.c0 operand;
+cell c1: u8 @ L.c1 operand;
+cell c2: u8 @ L.c2 operand;
+
+machine walker {
+  step {
+    if !neg(trigger) {
+      return;
+    }
+    let t = trigger & 0x0F;
+    trigger := t;
+    c0 := t;
+    c1 := t;
+    c2 := t;
+    let y = cursor;
+    if neg(v1[y]) {
+      if v3[y] == 0 {
+        y := v2[y];
+      } elif owner != y {
+        owner := y;
+        count := v3[y];
+        y := v2[y];
+      } else {
+        count -= 1;
+        if count != 0 {
+          y := v2[y];
+        } else {
+          owner := 0;
+          y := y + 1;
+        }
+      }
+    }
+    p0 := word(mem[L.ptr_lo + u16(v1[y])], mem[L.ptr_hi + u16(v1[y])]);
+    p1 := word(mem[L.ptr_lo + u16(v2[y])], mem[L.ptr_hi + u16(v2[y])]);
+    p2 := word(mem[L.ptr_lo + u16(v3[y])], mem[L.ptr_hi + u16(v3[y])]);
+    cursor := y + 1;
+  }
+}
+
+schedule {
+  walker;
+}

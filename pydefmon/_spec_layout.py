@@ -148,3 +148,36 @@ def pitch_binding(base: int, voice: int) -> dict:
     binding = {name: base + off for name, off in PITCH_OFFSETS.items()}
     binding["voice"] = voice
     return binding
+
+
+#: ``defmon_walker.play`` layout: offsets from the player base of the trigger and cursor
+#: operands, the loop owner and count, the arranger and pattern-pointer tables, and the
+#: operands that hold each voice's pattern pointer and step counter.
+WALKER_OFFSETS = {
+    "trigger": 0xD9,
+    "cursor": 0xEB,
+    "owner": 0x4EC,
+    "count": 0x4ED,
+    "v1": 0xB00,
+    "v2": 0xC00,
+    "v3": 0xD00,
+    "ptr_lo": 0xA00,
+    "ptr_hi": 0xA80,
+    "p0_lo": 0x186,
+    "p0_hi": 0x187,
+    "p1_lo": 0x20E,
+    "p1_hi": 0x20F,
+    "p2_lo": 0x296,
+    "p2_hi": 0x297,
+    "c0": 0x14A,
+    "c1": 0x1D2,
+    "c2": 0x25A,
+}
+
+#: The walker: its first instruction (``LDA #trigger``) and the start of the voices.
+WALKER_BLOCK = (0xD8, 0x147)
+
+
+def walker_binding(base: int) -> dict:
+    """The ``defmon_walker.play`` layout of the player at ``base``."""
+    return {name: base + off for name, off in WALKER_OFFSETS.items()}

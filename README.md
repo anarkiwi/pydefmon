@@ -9,8 +9,9 @@ Pure-Python reader, writer, and player for
 runs a tune's own relocatable replay on a jennings 6502 and emits the per-frame SID
 register writes, verified byte-exact over whole songs against the
 [`sidtrace`](https://github.com/anarkiwi/sidtrace) `sidplayfp` oracle on real
-HVSC tunes. The replay is also written as a
-[`pysidtracker` playspec](specs/defmon.play) that reproduces it call for call.
+HVSC tunes. Each play call runs the replay as a
+[`pysidtracker` playspec](pydefmon/specs/defmon.play) (`SpecPlayer`), held to the
+replay's own 6502 over whole songs; a replay the spec does not describe runs its 6502.
 
 Reads `.sid` files (PSID/RSID containers), bare `.prg` editor workfiles, and
 defMON's own pack-save export PRGs (SHIFT+P: the `$1000` raw export and the

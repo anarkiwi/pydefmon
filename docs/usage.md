@@ -133,19 +133,20 @@ Existing cases are kept; add `--prune` to drop those that now pass. `rank` write
   FV / CP / ACID` high half) plus its companion `jp` and `dl` bytes.
 - [`SidcallFrame`](../pydefmon/defmon.py) — one frame of a cascade walk via
   `DefmonSong.sidcall_frames(start_row)`.
-- [`DefmonPlayer`](../pydefmon/defmon_player.py) — a `pysidtracker.EmuPlayer`
-  that runs a `.sid` tune's own relocatable replay on a jennings 6502 (with the NMOS
-  illegal opcodes defMON uses) and samples the 25 SID registers per frame.
+- [`DefmonPlayer`](../pydefmon/defmon_player.py) — a `pysidtracker.SpecPlayer`
+  that runs a `.sid` tune's replay as the playspec below (else its own relocatable
+  replay on a jennings 6502, with the NMOS illegal opcodes defMON uses) and
+  samples the 25 SID registers per frame.
   `render_grid(nframes)` and `play_frame()` come from the shared base; byte-exact
   against the `sidtrace` oracle.
-- [`specs/`](../specs) — the replay as a `pysidtracker` playspec:
-  `defmon.play` composes the per-block fragments (`defmon_band`, `_walker`,
-  `_reader`, `_cascade`, `_sidrow`, `_pitch`, `_pwsweep`, `_acid`; `_nmi` is the
-  unverified clock/stereo part). `pydefmon._spec_layout.defmon_binding` binds it
-  to a tune's relocated replay by signature. Run as a `SpecPlayer` it matches
-  the 6502 replay on every play call of each oracle song
-  (`tests/test_playspec_whole.py`: registers and all memory outside the stack
-  page). `DefmonPlayer` still runs the 6502.
+- [`pydefmon/specs/`](../pydefmon/specs) — the replay as a `pysidtracker`
+  playspec: `defmon.play` composes the per-block fragments (`defmon_band`,
+  `_walker`, `_reader`, `_cascade`, `_sidrow`, `_pitch`, `_pwsweep`, `_acid`;
+  `_nmi` is the unverified clock/stereo part). `pydefmon._spec_layout.defmon_binding`
+  binds it to a tune's relocated replay by signature. `DefmonPlayer` runs it
+  (`spec_backed`), and `tests/test_playspec_whole.py` holds it to the replay's
+  6502 on every play call of each oracle song: registers and all memory outside
+  the stack page.
 - `register_writes_from_player` / `read_reglog` / `write_reglog` / `RegWrite` —
   the shared `py*` register-log surface.
 - `render_player_wav` / `render_player_samples` — the shared `py*` WAV/sample

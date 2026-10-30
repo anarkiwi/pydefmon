@@ -20,12 +20,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Union
 
-from pysidtracker import EmuPlayer, SidImage
+from functools import lru_cache
+
+from pysidtracker import EmuPlayer, SidImage, SidParseError
 from pysidtracker import registers as reg
 from pysidtracker.cadence import playroutine_cadence
 from pysidtracker.header import write_psid
+from pysidtracker.playspec import SpecError, SpecPlayer, parse
 
 from pydefmon import _sid_format
+from pydefmon._spec_layout import defmon_binding, play_entry, player_base, spec_text
 from pydefmon.defmon import DefmonError, DefmonSong
 
 PlayerSource = Union[bytes, bytearray, str, Path, SidImage, DefmonSong]
@@ -77,7 +81,23 @@ def replay_image(source: "SidImage | bytes") -> SidImage:
     return SidImage.from_bytes(psid)
 
 
-class DefmonPlayer(EmuPlayer):
+@lru_cache(maxsize=None)
+def _spec():
+    return parse(spec_text("defmon"))
+
+
+def _entries(view):
+    try:
+        return {play_entry(view, player_base(view))}
+    except (ValueError, LookupError):
+        return set()
+
+
+def _bind(view, entry):  # pylint: disable=unused-argument
+    return defmon_binding(view, player_base(view))
+
+
+class DefmonPlayer(SpecPlayer):
     """Per-frame SID register player for a defMON PSID/RSID replay.
 
     Construct from replay bytes, a path, a :class:`~pysidtracker.SidImage`,
@@ -93,6 +113,10 @@ class DefmonPlayer(EmuPlayer):
     both come from :class:`~pysidtracker.EmuPlayer`, byte-exact against the
     sidtrace oracle over real HVSC tunes.
 
+    Each play call runs ``pydefmon/specs/defmon.play`` bound to the replay (see
+    :attr:`spec_backed`); a replay the spec does not describe runs its own 6502
+    code instead, as :class:`~pysidtracker.EmuPlayer` does.
+
     Raises :class:`~pydefmon.DefmonError` for a source with no init/play
     routine (e.g. a bare ``.prg`` editor workfile, which carries no player --
     read those with :class:`~pydefmon.DefmonSong`).
@@ -106,11 +130,14 @@ class DefmonPlayer(EmuPlayer):
         if subtune is None:
             subtune = (header.start_song or 1) - 1
         super().__init__(
+            _spec(),
             image.image,
             image.load,
             init,
             play,
             subtune,
+            bind=_bind,
+            entries=_entries,
             illegal_opcodes=True,
             sid_model=reg.sid_model_for_flags(header.flags),
             cycles_per_frame=playroutine_cadence(
@@ -126,3 +153,24 @@ class DefmonPlayer(EmuPlayer):
         derived from how the tune programs its interrupts.
         """
         return self._period
+
+    @property
+    def spec_backed(self) -> bool:
+        """Whether play calls run the playspec (else the replay's own 6502)."""
+        return self.entry is not None
+
+    def _init(self, subtune: int) -> None:
+        memory = bytes(self._mem)
+        try:
+            super()._init(subtune)
+            self._instance(self.entry)
+        except (SidParseError, SpecError, ValueError, LookupError):
+            self._mem[:] = memory
+            self.entry = None
+            EmuPlayer._init(self, subtune)  # pylint: disable=protected-access
+
+    def _frame(self) -> None:
+        if self.entry is None:
+            EmuPlayer._frame(self)  # pylint: disable=protected-access
+        else:
+            super()._frame()

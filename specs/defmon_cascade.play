@@ -1,0 +1,41 @@
+// defMON sidTAB cascade, two layers per voice (layer A blocks 0-2 run before layer
+// B blocks 3-5, each BLOCK bytes of code): a counter with bit 7 set is frozen, a
+// non-zero one counts down, at zero the block fetches its row: a row whose high
+// pointer is 0 is a jump to the row its low byte names. The row's high pointer is
+// left for the row interpreter, the counter takes the row's DL byte and the block
+// continues after the effective row. Counter and row index are operands of the
+// block's own instructions.
+spec defmon_cascade;
+layout { counter, rowidx, rows_lo, rows_hi, dl, ptr_hi: addr; }
+const BLOCK = 0x31;
+cell rows_lo: u8[256] @ L.rows_lo ro;
+cell rows_hi: u8[256] @ L.rows_hi ro;
+cell dl: u8[256] @ L.dl ro;
+cell ptr_hi: u8 @ L.ptr_hi;
+
+machine layer[k in 0..6] {
+  cell counter: u8 @ L.counter + k * BLOCK operand;
+  cell rowidx: u8 @ L.rowidx + k * BLOCK operand;
+  step {
+    if neg(counter) {
+      return;
+    }
+    if counter != 0 {
+      counter -= 1;
+      return;
+    }
+    let eff = rowidx;
+    if rows_hi[eff] == 0 {
+      eff := rows_lo[eff];
+    }
+    ptr_hi := rows_hi[eff];
+    counter := dl[eff];
+    rowidx := eff + 1;
+  }
+}
+
+schedule {
+  for k in 0..6 {
+    layer[k];
+  }
+}

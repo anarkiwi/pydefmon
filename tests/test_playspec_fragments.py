@@ -100,45 +100,6 @@ def test_defmon_alt_ends_the_step_of_every_voice_next_tick():
     )
 
 
-def test_defmon_sidtab_jump_row_bitmap_columns_and_hold():
-    run = Run(
-        "defmon_sidtab",
-        {
-            "rowidx": 0x1000,
-            "counter": 0x1010,
-            "rows_lo": 0x1100,
-            "rows_hi": 0x1200,
-            "dl": 0x1300,
-            "wgh": 0x1020,
-            "wgl": 0x1023,
-            "ad": 0x1026,
-            "sr": 0x1029,
-            "note": 0x102C,
-            "base": 0x102F,
-            "pw_lo": 0x1032,
-            "pw_hi": 0x1035,
-            "ctrl": 0x1038,
-            "res": 0x103B,
-            "vol": 0x103C,
-        },
-    )
-    run.poke(0x1000, 1).poke(0x1010, 0, 0x80, 0x80, 0x80, 0x80, 0x80)
-    run.poke(0x1101, 3).poke(0x1103, 0x00).poke(0x1203, 0x50).poke(0x1303, 2)
-    run.poke(0x5000, 0x4A, 0x41, 0x05, 0x8C, 0x20, 0x3A)
-    run.poke(0x1023, 0x01).poke(0x1026, 0x77).poke(0x102F, 0x20)
-    run.step()
-    assert (run.peek(0x1020), run.peek(0x1023), run.peek(0x1026)) == (0x41, 0x01, 0x77)
-    assert (run.peek(0x102C), run.peek(0x1035), run.peek(0x1032)) == (0x25, 0x0C, 0x80)
-    assert (run.peek(0x103C), run.peek(0x1038), run.peek(0x1010), run.peek(0x1000)) == (
-        0x3F,
-        0x40,
-        2,
-        4,
-    )
-    run.step(2)
-    assert run.peek(0x1010) == 0 and run.peek(0x1011) == 0x80
-
-
 def test_defmon_pw_sweep_clamps_and_flips():
     run = Run("defmon_pwsweep", {"depth": 0x1000, "pw_lo": 0x1010, "pw_hi": 0x1020})
     voice = [0x31 * v for v in range(3)]

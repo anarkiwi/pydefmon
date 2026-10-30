@@ -5,7 +5,7 @@
 // instructions and in VOICE-byte records, so most cells are operands or read through memory.
 spec defmon;
 layout {
-  uncounted, plain_tr, or_ctrl, floored, shifts, fixed: flag;
+  uncounted, plain_tr, or_ctrl, floored, shifts, fixed, reduced: flag;
   pw_lo, pw_hi, freq_lo, freq_hi, sr, ad, wgh, wgl, res, fv, sid,
   cut_lo, cut_hi, cut_step_lo, cut_step_hi, op_lo, op_hi, extra, floor, shift,
   rowptr_lo, rowptr_hi, scratch, note, note_base, mode, depth, vbit, vmask, cp, detune,
@@ -427,13 +427,15 @@ schedule {
   }
   filter;
   cutoff;
-  if L.uncounted {
-    walker_uncounted;
-  } else {
-    walker;
-  }
-  for v in 0..3 {
-    reader[v];
+  if !L.reduced {
+    if L.uncounted {
+      walker_uncounted;
+    } else {
+      walker;
+    }
+    for v in 0..3 {
+      reader[v];
+    }
   }
   for k in 0..6 {
     layer[k];

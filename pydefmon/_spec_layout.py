@@ -60,6 +60,24 @@ def play_entry(mem, base: int) -> int:
     raise ValueError(f"no play entry jumps to the band at ${band:04x}")
 
 
+#: The entry at the player's start plus six: it patches an ``RTS`` over the walker's first
+#: byte, calls the band (so the cutoff slide runs and the walker and readers do not) and
+#: jumps to the sidTAB cascade.
+REDUCED_ENTRY = 6
+_REDUCED_STUB = CodePattern("AD ?? ?? 48 A9 60 8D ?? ?? 20 ?? ?? 68 8D ?? ?? 4C ?? ??")
+
+
+def reduced_entry(mem, base: int, walker: int, cascade: int) -> "int | None":
+    """The address of the reduced entry, or ``None`` if the player has none."""
+    at = base + REDUCED_ENTRY
+    found = find_code_first(bytes(mem), _REDUCED_STUB, start=at, end=at + 19)
+    if found is None or found.addr != at:
+        return None
+    if _word(mem, at + 1) != walker or _word(mem, at + 17) != cascade:
+        return None
+    return at
+
+
 def acid_binding(base: int) -> dict:
     """The ``defmon_acid.play`` layout of the player at ``base``."""
     binding = {name: base + off for name, off in ACID_OFFSETS.items()}
@@ -285,7 +303,7 @@ _CUTOFF_START = 0xB5
 _CUTOFF_STORE = CodePattern("8D 16 D4")
 _UNCOUNTED_JUMPS = CodePattern("BE ?? ?? 10 ?? B9 ?? ?? A8 BE")
 _READER_START = CodePattern("A2 00 A0 ?? 30 ?? CE")
-_ROW_START = CodePattern("85 FB A0 00 B1 FB")
+_ROW_START = CodePattern("85 ?? A0 00 B1 ??")
 _ROW_TR = CodePattern("18 7D ?? ??")
 _ROW_CP = CodePattern("8D ?? ?? 8A 29 10")
 _BAND_CONTROL = 0x3C
@@ -326,11 +344,37 @@ def _operands(mem, opcode: int, start: int, end: int) -> list:
 _FIXED_EVENT_SKIP = 0x09
 
 
-def defmon_binding(mem, base: int) -> dict:
+def play_entries(mem, base: int) -> set:
+    """The addresses the player's routines are entered at: the ``JMP`` beside its start
+    to the band when it has one, the band (which a ``JSR`` or ``JMP`` from the tune's own
+    code reaches), and the reduced entry when the player has one."""
+    band = base + BAND_BLOCK[0]
+    entries = {band}
+    try:
+        entries.add(play_entry(mem, base))
+    except ValueError:
+        pass
+    reduced = _reduced_entry(mem, base)
+    if reduced is not None:
+        entries.add(reduced)
+    return entries
+
+
+def _reduced_entry(mem, base: int) -> "int | None":
+    walker = (
+        _find(mem, _CUTOFF_STORE, base + _CUTOFF_START, base + _CUTOFF_START + 0x30) + 3
+    )
+    reader = _find(mem, _READER_START, walker, walker + 0x100)
+    return reduced_entry(mem, base, walker, reader + 3 * READER_SIZE)
+
+
+def defmon_binding(mem, base: int, entry: "int | None" = None) -> dict:
     """The ``defmon.play`` layout of the player at ``base`` in ``mem``.
 
     The blocks whose length varies with the build (the cutoff slide, the arranger walker)
     are found from their code; table addresses are read from the operands that use them.
+
+    ``entry`` is where the routine was entered: the reduced entry binds ``reduced``.
 
     Raises:
         ValueError: a block is not where the player's code puts it.
@@ -425,8 +469,8 @@ def defmon_binding(mem, base: int) -> dict:
         "step_hi": pitch + 0x8A,
         # the row interpreter
         "cp": _word(mem, cp + 1),
-        "rowptr_lo": ROW_POINTER[0],
-        "rowptr_hi": ROW_POINTER[1],
+        "rowptr_lo": mem[row + 1],
+        "rowptr_hi": mem[row + 1] + 1,
         "scratch": mem[row + 0xA],
         "sid": SID_BASE,
         # the build
@@ -438,5 +482,8 @@ def defmon_binding(mem, base: int) -> dict:
         "floored": int(length >= _CUTOFF_WITH_FLOOR),
         "shifts": int(length >= _CUTOFF_WITH_SHIFT),
         "fixed": int(mem[reader + 0x3B + 2] == _FIXED_EVENT_SKIP),
+        "reduced": int(
+            entry is not None and entry == reduced_entry(mem, base, walker, cascade)
+        ),
     }
     return binding

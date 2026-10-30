@@ -15,7 +15,19 @@ from pydefmon import DefmonPlayer
 from tests._support import assert_same_every_call, replay_player
 from tests.test_oracle_hvsc import SUBTUNES, TUNES
 
-SONGS = [(rel, None) for rel in TUNES.values()] + [
+# Replays that reach the player through their own wrapper, the reduced entry at the
+# player's start plus six, the band called from outside, or a relocated row pointer.
+WRAPPED = (
+    "MUSICIANS/F/F7sus4/NGC1277_tune_1.sid",
+    "MUSICIANS/F/F7sus4/NGC1277_tune_2.sid",
+    "MUSICIANS/F/F7sus4/NGC1277_tune_3.sid",
+    "MUSICIANS/F/F7sus4/Timewarp_Spheres_2SID.sid",
+    "MUSICIANS/G/Goto80/Skan0r.sid",
+    "MUSICIANS/G/Goto80/Svenska_Narkotika_3.sid",
+    "MUSICIANS/N/NecroPolo/Anticitizen_64.sid",
+)
+
+SONGS = [(rel, None) for rel in (*TUNES.values(), *WRAPPED)] + [
     tuple(entry) for entry in SUBTUNES.values()
 ]
 
@@ -27,8 +39,6 @@ def test_whole_spec_equals_the_replay_every_call_of_the_whole_song(relpath, song
         pytest.skip(f"tune {relpath} unavailable (offline, not cached)")
     data = path.read_bytes()
     subtune = None if song is None else song - 1
-    player = DefmonPlayer(data, subtune=subtune)
-    assert player.spec_backed
     player = DefmonPlayer(data, subtune=subtune)
     assert player.spec_backed
     assert_same_every_call(

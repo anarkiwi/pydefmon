@@ -29,7 +29,7 @@ from pysidtracker.header import write_psid
 from pysidtracker.playspec import SpecError, SpecPlayer, parse
 
 from pydefmon import _sid_format
-from pydefmon._spec_layout import defmon_binding, play_entry, player_base, spec_text
+from pydefmon._spec_layout import defmon_binding, play_entries, player_base, spec_text
 from pydefmon.defmon import DefmonError, DefmonSong
 
 #: Play calls closer together than this can overrun their period; the spec costs no
@@ -92,16 +92,14 @@ def _spec():
 
 def _entries(view):
     base = player_base(view)
-    if base < 0:
-        return set()
     try:
-        return {play_entry(view, base)}
+        return set() if base < 0 else play_entries(view, base)
     except ValueError:
         return set()
 
 
-def _bind(view, entry):  # pylint: disable=unused-argument
-    return defmon_binding(view, player_base(view))
+def _bind(view, entry):
+    return defmon_binding(view, player_base(view), entry)
 
 
 class DefmonPlayer(SpecPlayer):

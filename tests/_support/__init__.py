@@ -260,22 +260,29 @@ def assert_same_every_call(plain, other, frames: int) -> None:
     """Play ``frames`` calls of both players; after each, their register writes and the
     whole 64 KiB outside the stack page must be equal. ``other`` is a
     :class:`~pysidtracker.playspec.SpecPlayer`: it must have run its spec exactly as many
-    times as ``plain`` executed the instruction at the spec's entry, and at least once.
+    times as ``plain`` entered one of the spec's entries (an entry reached from inside an
+    entered routine is part of it), and at least once.
     """
     # pylint: disable=protected-access
-    runs, hits = [0], [0]
-    run, entry, step = other._run, other.entry, plain._mpu.step
+    runs, hits, inside = [0], [0], [None]
+    run, entries, step = other._run, other._entries(), plain._mpu.step
 
     def counting_run(address):
         runs[0] += 1
         run(address)
 
     def counting_step():
-        hits[0] += plain._mpu.pc == entry
+        mpu = plain._mpu
+        if inside[0] is not None and mpu.sp > inside[0]:
+            inside[0] = None
+        if inside[0] is None and mpu.pc in entries:
+            hits[0] += 1
+            inside[0] = mpu.sp
         return step()
 
     other._run, plain._mpu.step = counting_run, counting_step
     for frame in range(frames):
+        inside[0] = None
         assert plain.play_frame() == other.play_frame(), f"registers at call {frame}"
         ram, mem = plain._mem, other._mem
         if ram[:0x100] != mem[:0x100] or ram[0x200:] != mem[0x200:]:

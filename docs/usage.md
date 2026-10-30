@@ -143,7 +143,12 @@ Existing cases are kept; add `--prune` to drop those that now pass. `rank` write
   playspec: `defmon.play` composes the per-block fragments (`defmon_band`,
   `_walker`, `_reader`, `_cascade`, `_sidrow`, `_pitch`, `_pwsweep`, `_acid`;
   `_nmi` is the unverified clock/stereo part). `pydefmon._spec_layout.defmon_binding`
-  binds it to a tune's relocated replay by signature. `DefmonPlayer` runs it
+  binds it to a tune's relocated replay by signature. The routine is entered at the
+  `JMP` to the band beside the player's start, at the band (called from the tune's
+  own code), or at the player's start plus six, which runs the band and cutoff slide
+  and the cascade but not the walker and readers (multi-speed tunes alternate the
+  two). Calls closer together than `MIN_SPEC_PERIOD` cycles stay on the 6502, as the
+  spec cannot tell when the replay overruns its period. `DefmonPlayer` runs it
   (`spec_backed`), and `tests/test_playspec_whole.py` holds it to the replay's
   6502 on every play call of each oracle song: registers and all memory outside
   the stack page.

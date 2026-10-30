@@ -479,6 +479,19 @@ section).
 * **Main-tick NMIs** (every `$715C`-th) additionally run the arranger walk +
   per-voice pattern advance, BEFORE the cascade.
 
+The replay has two entries for this: base `+3` is the full tick (`JMP` to the
+band), base `+6` the band-only call (it runs the band and the cutoff slide, skips
+the walker and the readers, and continues at the cascade). Which one runs is the
+caller's choice. The editor's NMI handler (`$0AED`) keeps a counter in `$7172`: it
+calls `+3` when the counter is 0 and `+6` otherwise, then counts it up to `$715C`
+and wraps it to 0; with `$715D` set it then calls the second player copy at
+`$C800` (`+3`/`+6` there, `$C803`/`$C806`) the same way. A packed multi-speed tune
+carries that choice in its own play wrapper instead (`Fading_Lights` patches the
+entry's low byte from a `03 06 06 06` table). `specs/defmon_nmi.play` models the
+counter and the full-tick decision and is checked against the editor's handler
+(`tests/test_playspec_nmi_6502.py`); the handler's other effects (border colour,
+interrupt acknowledgement) are not modelled.
+
 ### SID write band order
 
 Each play call (one NMI, so every call of a multi-speed tune) emits exactly 24

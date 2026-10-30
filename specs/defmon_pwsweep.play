@@ -1,13 +1,15 @@
 // defMON pulse-width sweep, every call: depth $80+ adds depth & $7F with carry
 // into the high nibble, $01-$7F subtracts depth+1 (SBC, carry clear); at the
-// 12-bit end the low byte clamps ($F8 / $01) and the direction bit flips.
+// 12-bit end the low byte clamps ($F8 / $01) and the direction bit flips. Voice
+// state is one record of VOICE bytes per voice.
 spec defmon_pwsweep;
 layout { depth, pw_lo, pw_hi: addr; }
+const VOICE = 0x31;
 
 machine voice[x in 0..3] {
-  cell depth: u8 @ L.depth + x;
-  cell lo: u8 @ L.pw_lo + x;
-  cell hi: u8 @ L.pw_hi + x;
+  cell depth: u8 @ L.depth + x * VOICE;
+  cell lo: u8 @ L.pw_lo + x * VOICE;
+  cell hi: u8 @ L.pw_hi + x * VOICE;
   step {
     if depth == 0 {
       return;

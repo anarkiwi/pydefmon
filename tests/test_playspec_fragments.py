@@ -141,14 +141,17 @@ def test_defmon_sidtab_jump_row_bitmap_columns_and_hold():
 
 def test_defmon_pw_sweep_clamps_and_flips():
     run = Run("defmon_pwsweep", {"depth": 0x1000, "pw_lo": 0x1010, "pw_hi": 0x1020})
-    run.poke(0x1000, 0x84, 0x03, 0x90).poke(0x1010, 0xFE, 0x02, 0xF8).poke(
-        0x1020, 0x0F, 0x00, 0x05
-    )
+    voice = [0x31 * v for v in range(3)]
+    for v, depth, lo, hi in zip(
+        voice, (0x84, 0x03, 0x90), (0xFE, 0x02, 0xF8), (0x0F, 0x00, 0x05)
+    ):
+        run.poke(0x1000 + v, depth).poke(0x1010 + v, lo).poke(0x1020 + v, hi)
     run.step()
-    assert run.peek(0x1000, 3) == [0x04, 0x83, 0x90]
-    assert run.peek(0x1010, 3) == [0xF8, 0x01, 0x08] and run.peek(0x1022) == 6
+    assert [run.peek(0x1000 + v) for v in voice] == [0x04, 0x83, 0x90]
+    assert [run.peek(0x1010 + v) for v in voice] == [0xF8, 0x01, 0x08]
+    assert run.peek(0x1020 + voice[2]) == 6
     run.step()
-    assert run.peek(0x1010) == 0xF3 and run.peek(0x1011) == 0x04
+    assert run.peek(0x1010) == 0xF3 and run.peek(0x1010 + voice[1]) == 0x04
 
 
 @pytest.mark.parametrize(

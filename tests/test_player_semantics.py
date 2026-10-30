@@ -136,6 +136,19 @@ class TestColumns(unittest.TestCase):
                 pulse = [(f[_PW_HI] & 0x0F) << 8 | f[_PW_LO] for f in grid[3:]]
                 self.assertEqual({b - a for a, b in zip(pulse, pulse[1:])}, {step})
 
+    def test_every_voice_sweeps_the_same(self):
+        for depth, step in ((0x84, 0x04), (0x04, -0x05)):
+            with self.subTest(depth=depth):
+                grid = editor_grid(
+                    f"sid 1\n $00: $01 $01 $01\n{_SILENT}pattern $01\n"
+                    f" 0: n ${_N:02x} a $01\n 200: end 0\n"
+                    f"row $01 PW $88 PS ${depth:02x} stop\n",
+                    10,
+                )
+                for lo, hi in ((_PW_LO, _PW_HI), (9, 10), (16, 17)):
+                    pulse = [(f[hi] & 0x0F) << 8 | f[lo] for f in grid[3:]]
+                    self.assertEqual({b - a for a, b in zip(pulse, pulse[1:])}, {step})
+
     def test_fv_sets_mode_and_volume_stays_full(self):
         frame = _one_voice("row $01 FV $50 stop\n", frames=6)[-1]
         self.assertEqual(frame[_MODE_VOL], 0x5F)

@@ -36,3 +36,15 @@ def acid_binding(base: int) -> dict:
     binding = {name: base + off for name, off in ACID_OFFSETS.items()}
     binding["sid"] = SID_BASE
     return binding
+
+
+#: ``defmon_pwsweep.play`` layout: offsets of voice 0's sweep state from the player base.
+PWSWEEP_OFFSETS = {"depth": 0x1E, "pw_lo": 0x23, "pw_hi": 0x25}
+
+#: The sweep of every voice: its first instruction and the voice loop's ``TXA``.
+PWSWEEP_BLOCK = (0x495, 0x4E3)
+
+
+def pwsweep_binding(base: int) -> dict:
+    """The ``defmon_pwsweep.play`` layout of the player at ``base``."""
+    return {name: base + off for name, off in PWSWEEP_OFFSETS.items()}

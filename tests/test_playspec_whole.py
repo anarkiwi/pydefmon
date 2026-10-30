@@ -17,7 +17,7 @@ from tests._support import assert_same_every_call, spec_player
 from tests.test_oracle_hvsc import SUBTUNES, TUNES
 
 SONGS = [(rel, None) for rel in TUNES.values()] + [
-    (rel, song) for rel, song, _ in SUBTUNES.values()
+    tuple(entry) for entry in SUBTUNES.values()
 ]
 
 

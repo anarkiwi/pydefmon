@@ -187,14 +187,7 @@ class DefmonPlayer(SpecPlayer):
     def _init(self, subtune: int) -> None:
         memory = bytes(self._mem)
         try:
-            try:
-                super()._init(subtune)
-            except SidParseError:
-                # A wrapper that skips the player on its first call reaches no entry.
-                entries = self._entries()
-                if not entries:
-                    raise
-                self.entry = min(entries)
+            super()._init(subtune)
             self._instance(self.entry)
         except (SidParseError, SpecError, ValueError, LookupError):
             self._mem[:] = memory

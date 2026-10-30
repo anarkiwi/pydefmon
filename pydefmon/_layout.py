@@ -101,6 +101,14 @@ class RowColumns(tuple):
         return bytes(out)
 
 
+class ArrangerRows(tuple):
+    """A chip's arranger rows, each ``(V1, V2, V3)``."""
+
+    def to_bytes(self) -> bytes:
+        """The three bytes of each row, in order."""
+        return bytes(b for row in self for b in row)
+
+
 @v_args(inline=True)
 class _ToSteps(Transformer):
     # pylint: disable=missing-function-docstring
@@ -128,6 +136,14 @@ class _ToSteps(Transformer):
         model = PackedPattern(steps)
         return Parsed(model, len(model.to_bytes()))
 
+    def play_row(self, *row) -> tuple:
+        return tuple(ord(b) for b in row)
+
+    jump_row = play_row
+
+    def arranger(self, *rows) -> Parsed:
+        return Parsed(ArrangerRows(rows), 3 * len(rows))
+
     def column(self, tag, *values):
         return _TAG_COLUMN[tag.type], int.from_bytes(bytes(map(ord, values)), "little")
 
@@ -141,11 +157,12 @@ class _ToSteps(Transformer):
         return Parsed(model, len(model.to_bytes()))
 
 
-#: Pattern streams of both forms (``editor``, ``packed``) and sidTAB rows (``row``).
+#: Pattern streams of both forms (``editor``, ``packed``), sidTAB rows (``row``) and
+#: arranger rows (``arranger``).
 STREAMS = ByteGrammar(
     __package__,
     "streams.lark",
-    ("editor", "packed", "row"),
+    ("editor", "packed", "row", "arranger"),
     _ToSteps(),
     bitmaps={"LOWMAP": _tags(LOW_COLUMNS), "HIGHMAP": _tags(HIGH_COLUMNS)},
 )

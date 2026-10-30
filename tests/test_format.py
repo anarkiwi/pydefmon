@@ -20,7 +20,7 @@ from pysidtracker import formats as formats_mod
 from pysidtracker import maincli
 from pysidtracker.testing import resolve_tune
 
-from pydefmon.defmon import DefmonSong
+from pydefmon.defmon import DefmonSong, PatternEvent
 from pydefmon.defmon_player import DefmonPlayer
 from pydefmon.format import _metadata, defmon_format
 
@@ -130,3 +130,19 @@ class TestDefmonFormatViaGenericCli(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestArrangerStream(unittest.TestCase):
+    def _song(self):
+        song = DefmonSong()
+        song.set_pattern_events(1, PatternEvent.silent_pattern())
+        song.set_step(0, v1=1, v2=1, v3=1)
+        song.set_jump(1, target=0, count=0)
+        return song
+
+    def test_listing_names_the_arranger_rows_the_walker_reaches(self):
+        lines = list(defmon_format().listing(self._song()))
+        start = lines.index("arranger sid1:")
+        rows = [line.split()[0] for line in lines[start + 2 : start + 4]]
+        self.assertEqual(rows, ["play_row", "jump_row"])
+        self.assertIn("JUMP=$ff BYTE=$00 BYTE=$00", lines[start + 3])

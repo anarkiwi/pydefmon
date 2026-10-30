@@ -81,10 +81,11 @@ names its target, and a row followed by a JP has that target as `next`. Columns
 are those whose bitmap bits the player tests (low bits 7..1, high bits 7..3), in
 the order it reads them. Unused bitmap bits and trailing bytes are dropped.
 
-Pattern bodies and sidTAB rows are read through the byte grammar
+Arranger rows, pattern bodies and sidTAB rows are read through the byte grammar
 [`pydefmon/streams.lark`](../pydefmon/streams.lark): rule `editor` for the
 editor's 4-byte steps, `packed` for a replay's streams (one payload byte per
-set gate) and `row` for a sidTAB row, whose bitmap bits select the column
+set gate), `arranger` for a chip's reached arranger rows (three bytes each; V1 bit 7
+marks a jump row) and `row` for a sidTAB row, whose bitmap bits select the column
 values after them (`pysidtracker.BitField`). `pysidtracker grammar SONG` prints
 the streams the player reads.
 

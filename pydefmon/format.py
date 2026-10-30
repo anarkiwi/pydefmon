@@ -7,7 +7,7 @@ wav`` tool recognises a defMON replay by content and renders it through
 :class:`~pydefmon.DefmonPlayer`; ``pysidtracker snapshot`` digests the decoded
 RAM image and the canonical song grammar (:class:`~pydefmon.Tune`), which is
 also what ``pysidtracker equiv`` compares; ``pysidtracker grammar`` lists the
-pattern bodies and sidTAB rows the player reads through ``streams.lark``.
+arranger rows, pattern bodies and sidTAB rows the player reads through ``streams.lark``.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from pysidtracker import SidFormat, SidImage
 
 from pydefmon import _sid_format
 from pydefmon._layout import (
+    ArrangerRows,
     LOAD_ADDRESS,
     PATTERN_BANK,
     PATTERN_STRIDE,
@@ -28,7 +29,7 @@ from pydefmon._layout import (
 from pydefmon.defmon import DefmonSidParser, DefmonSong
 from pydefmon._variant import detect_variant
 from pydefmon.defmon_player import DefmonPlayer
-from pydefmon.tune import Tune
+from pydefmon.tune import ARRANGERS, Tune, _page
 
 
 def _metadata(song: DefmonSong) -> Sequence:
@@ -70,9 +71,13 @@ def _facet_sites(song: DefmonSong) -> Mapping[int, str]:
 
 
 def _streams(song: DefmonSong) -> Iterator[tuple]:
-    """The pattern bodies and sidTAB rows the player reads, as ``streams.lark`` models."""
+    """The arranger rows, pattern bodies and sidTAB rows the player reads, as ``streams.lark`` models."""
     tune = Tune.from_song(song)
     snap = song.unpacked_snapshot()
+    for chip, (rows, pages) in enumerate(zip(tune.chips, ARRANGERS), 1):
+        columns = [_page(snap, page) for page in pages]
+        body = ArrangerRows(tuple(col[y] for col in columns) for y in rows)
+        yield f"arranger sid{chip}", body, "arranger"
     for p in tune.patterns:
         start = PATTERN_BANK + p * PATTERN_STRIDE - LOAD_ADDRESS
         steps = STREAMS.parse_prefix(snap[start : start + PATTERN_STRIDE], "editor")

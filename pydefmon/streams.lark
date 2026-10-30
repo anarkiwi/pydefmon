@@ -44,6 +44,15 @@ AAN: /[\xd0-\xdf]/
 AAB: /[\xe0-\xef]/
 AABN: /[\xf0-\xff]/
 
+// arranger: a chip's reached arranger rows as the walker reads them, three bytes
+// (V1, V2, V3) each. V1 bit 7 marks a jump row: V2 is its target and V3 its
+// repeat count (ignored by players without loop counts).
+arranger: (play_row | jump_row)+
+play_row: PLAY BYTE BYTE
+jump_row: JUMP BYTE BYTE
+PLAY: /[\x00-\x7f]/
+JUMP: /[\x80-\xff]/
+
 // row: a sidTAB row as the cascade applies it. Each bitmap's set bits select
 // the column values after it (the postlexer splices a T_* tag before each);
 // bits the player does not test select nothing, and bytes after are padding.

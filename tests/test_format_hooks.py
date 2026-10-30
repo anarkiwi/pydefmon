@@ -22,7 +22,7 @@ class TestFormatHooks(unittest.TestCase):
         text = "\n".join(self.fmt.listing(self.song))
         self.assertEqual(
             [line for line in text.splitlines() if line.endswith(":")],
-            ["pattern $01:", "row $02:", "row $03:"],
+            ["arranger sid1:", "pattern $01:", "row $02:", "row $03:"],
         )
         self.assertIn("column T_WGH BYTE=$20", text)
 

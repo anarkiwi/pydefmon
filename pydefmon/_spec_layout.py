@@ -119,3 +119,32 @@ def cascade_binding(base: int) -> dict:
     binding = {name: base + off for name, off in CASCADE_OFFSETS.items()}
     binding["ptr_hi"] = ROW_POINTER[1]
     return binding
+
+
+#: ``defmon_pitch.play`` layout: offsets from the player base of voice 0's cells, the
+#: note-pitch and slide-rate tables, and the operands that hold the constant-detune step.
+PITCH_OFFSETS = {
+    "mode": 0x1B,
+    "acc_lo": 0x19,
+    "acc_hi": 0x1A,
+    "detune": 0x1F,
+    "note": 0x37F,
+    "freq_lo": 0x2D,
+    "freq_hi": 0x2F,
+    "pitch_lo": 0x59C,
+    "pitch_hi": 0x638,
+    "rate_lo": 0x578,
+    "rate_hi": 0x614,
+    "step_lo": 0x489,
+    "step_hi": 0x491,
+}
+
+#: The pitch of one voice: its first instruction and the start of the pulse-width sweep.
+PITCH_BLOCK = (0x407, 0x495)
+
+
+def pitch_binding(base: int, voice: int) -> dict:
+    """The ``defmon_pitch.play`` layout of the player at ``base``, for ``voice``."""
+    binding = {name: base + off for name, off in PITCH_OFFSETS.items()}
+    binding["voice"] = voice
+    return binding

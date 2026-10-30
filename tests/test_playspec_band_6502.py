@@ -18,6 +18,7 @@ from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
 from pydefmon._spec_layout import (
+    spec_text,
     BAND_BLOCK,
     BAND_OFFSETS,
     VOICE_STRIDE,
@@ -25,9 +26,7 @@ from pydefmon._spec_layout import (
     player_base,
 )
 
-SPEC = parse(
-    (Path(__file__).resolve().parent.parent / "specs" / "defmon_band.play").read_text()
-)
+SPEC = parse(spec_text("defmon_band"))
 TUNES = (
     "MUSICIANS/I/Ilkke/Glow_Worm.sid",
     "MUSICIANS/D/Demsky_Martin/Acid_Bassline.sid",

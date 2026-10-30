@@ -18,6 +18,7 @@ from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
 from pydefmon._spec_layout import (
+    spec_text,
     CASCADE_BLOCKS,
     CASCADE_OFFSETS,
     RTS,
@@ -26,11 +27,7 @@ from pydefmon._spec_layout import (
     player_base,
 )
 
-SPEC = parse(
-    (
-        Path(__file__).resolve().parent.parent / "specs" / "defmon_cascade.play"
-    ).read_text()
-)
+SPEC = parse(spec_text("defmon_cascade"))
 # Replays assembled at $1000: elsewhere the jump lookup reads tables at the
 # unrelocated address.
 TUNES = (

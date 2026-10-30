@@ -7,6 +7,7 @@ shown. Prints the seeds and the features no seed showed, which need a reason eac
 no state reaches) before they go in ``tests/_support/coverage_seeds.json``.
 """
 
+# pylint: disable=wrong-import-position
 import argparse
 import json
 import sys
@@ -18,12 +19,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from pysidtracker.testing import (
     resolve_tune,
-)  # noqa: E402  pylint: disable=wrong-import-position
+)  # noqa: E402
 
 from pydefmon._spec_layout import (
     entry_base,
-)  # noqa: E402  pylint: disable=wrong-import-position
-from tests._support.routine_coverage import (  # noqa: E402  pylint: disable=wrong-import-position
+)  # noqa: E402
+from tests._support.routine_coverage import (  # noqa: E402
     MUTANTS,
     Routine,
     mutated_spec,

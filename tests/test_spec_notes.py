@@ -10,7 +10,6 @@ import pytest
 
 from pysidtracker import SidImage, song_frames
 from pysidtracker.formats import SidFormatError
-from pysidtracker import registers as reg
 from pysidtracker.notes import frequency
 from pysidtracker.playspec import compile_program, elaborate, parse
 from pysidtracker.playspec.pyexec import controls
@@ -57,10 +56,6 @@ def _tune(relpath: str) -> bytes:
     return path.read_bytes()
 
 
-def _sid_model(data: bytes) -> str:
-    return reg.sid_model_for_flags(SidImage.from_bytes(data).header.flags)
-
-
 @pytest.mark.parametrize("relpath", corpus_relpaths())
 def test_spec_player_plays_the_grid_of_defmon_player(relpath):
     data = _tune(relpath)
@@ -70,7 +65,7 @@ def test_spec_player_plays_the_grid_of_defmon_player(relpath):
             FMT.spec_player(model)
         return
     frames = song_frames(data)
-    player = FMT.spec_player(model, sid_model=_sid_model(data))
+    player = FMT.spec_player(model)
     assert player.render_grid(frames) == DefmonPlayer(data).render_grid(frames)
 
 
@@ -175,7 +170,7 @@ def test_whole_spec_with_notes_plays_the_standard_word_of_every_note():
     seen = set()
     for relpath in PLAYED:
         data = _tune(relpath)
-        player = FMT.spec_player(FMT.parser.parse(data), notes=PAL, sid_model="8580")
+        player = FMT.spec_player(FMT.parser.parse(data), notes=PAL)
         for _ in range(600):
             player.play_frame()
             for cells in _voices(player):
@@ -209,3 +204,28 @@ def test_build_facts_reports_the_binding_of_the_player():
         spec_entries(mem) >= {base + 6}
     )
     assert spec() is spec()
+
+
+NTSC = 1022727
+CLOCK_BITS = 0x76 + 1
+NTSC_CLOCK = 0b1000
+
+
+def test_notes_follow_the_clock_of_the_tunes_header():
+    data = bytearray(_tune(PLAYED[0]))
+    data[CLOCK_BITS] = data[CLOCK_BITS] & ~0b1100 | NTSC_CLOCK
+    assert SidImage.from_bytes(bytes(data)).header.is_ntsc
+    player = FMT.spec_player(FMT.parser.parse(bytes(data)), notes=True)
+    pal = FMT.spec_player(FMT.parser.parse(_tune(PLAYED[0])), notes=True)
+    sounded = 0
+    for _ in range(300):
+        player.play_frame()
+        pal.play_frame()
+        for cells in _voices(player):
+            if cells["mode"] == 0 and cells["note"]:
+                word = cells["freq_hi"] << 8 | cells["freq_lo"]
+                want = frequency(cells["note"] - NOTE_BIAS, NTSC)
+                assert word == want & 0xFF00 | (want + cells["detune"]) & 0xFF
+                sounded += 1
+    assert sounded
+    assert any(a != b for a, b in zip(_voices(player), _voices(pal)))

@@ -102,7 +102,16 @@ def _spec(song: DefmonSong) -> SpecBinding:
     subtune = song.subtune
     if subtune is None:
         subtune = (image.header.start_song or 1) - 1
-    return SpecBinding(spec(), spec_bind, image.image, spec_entries, subtune=subtune)
+    raw = song.image_bytes
+    container = raw if raw[:4] in (b"PSID", b"RSID") else None
+    return SpecBinding(
+        spec(),
+        spec_bind,
+        image.image,
+        spec_entries,
+        subtune=subtune,
+        sid=container,
+    )
 
 
 def defmon_format() -> SidFormat:

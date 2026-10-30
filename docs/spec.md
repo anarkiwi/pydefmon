@@ -32,15 +32,15 @@ values:
 ## `SidFormat.spec`
 
 `defmon_format().spec(model)` is a `pysidtracker.formats.SpecBinding` of the model's own
-replay image and subtune, with `spec_entries` and `spec_bind`. So
-A stereo (2SID) replay raises `SidFormatError`. `fmt.spec_player(model)` plays what `DefmonPlayer` plays; the SID model of the header is not
-carried, so pass `sid_model=` (and `cycles_per_frame=` for a tune whose play call overruns
-its period) as `DefmonPlayer` derives them.
+replay image and subtune, with `spec_entries`, `spec_bind` and the original `.sid` container
+(`sid`, absent for a bare or export PRG). So `fmt.spec_player(model)` plays what `DefmonPlayer`
+plays, taking the clock and SID model from the header, and `notes=True` answers with the
+tune's own clock. A stereo (2SID) replay raises `SidFormatError`.
 
 ## Standard notes
 
 The `ro` cells over the note-pitch table declare which note each index means, so
-`fmt.spec_player(model, notes=clock)` answers every read of the table with
+`fmt.spec_player(model, notes=clock)` (`True`: the tune's clock) answers every read of the table with
 `pysidtracker.notes.frequency(note, clock)`. The table is indexed by the note byte `k`,
 which is standard note `k - 24` (`$30` is C2; indexes 0-23 are the notes C-2 to B-1).
 

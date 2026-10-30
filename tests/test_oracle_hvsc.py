@@ -55,7 +55,7 @@ def _render(data, nframes):
     return oracle_hvsc.render(data, 1, nframes)[0].tolist()
 
 
-tune_id, oracle_match = make_oracle_fixtures(TUNES, render=_render, frames=250)
+tune_id, oracle_match = make_oracle_fixtures(TUNES, render=_render)
 
 
 @pytest.mark.oracle

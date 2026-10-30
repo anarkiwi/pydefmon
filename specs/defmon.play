@@ -1,0 +1,383 @@
+// defMON replay playroutine, one call: the SID write band, the cutoff slide, the
+// arranger walker, each voice's pattern step reader, the six sidTAB cascade blocks
+// (which call the row interpreter), then the pitch and pulse-width sweep of the voices
+// from the last to the first. The routine keeps its state in the operands of its own
+// instructions and in VOICE-byte records, so most cells are operands or read through memory.
+spec defmon;
+layout {
+  pw_lo, pw_hi, freq_lo, freq_hi, sr, ad, wgh, wgl, res, fv, sid,
+  cut_lo, cut_hi, cut_step_lo, cut_step_hi, op_lo, op_hi, extra, floor,
+  rowptr_lo, rowptr_hi, scratch, note, note_base, mode, depth, vbit, vmask, cp, detune,
+  trigger, cursor, owner, count, v1, v2, v3, pat_lo, pat_hi,
+  counter, ptr_lo, ptr_hi, copy1_lo, copy1_hi, copy2_lo, copy2_hi, copy3_lo, copy3_hi,
+  flag, gate_a, gate_b, gate_n, row_a, count_a, row_b, count_b, slide_lo, slide_hi,
+  rows_lo, rows_hi, dl, blk_counter, blk_rowidx,
+  pitch_lo, pitch_hi, rate_lo, rate_hi, step_lo, step_hi: addr;
+}
+const VOICE = 0x31;
+const READER = 0x88;
+const BLOCK = 0x31;
+const ADC_IMM = 0x69;
+const SBC_IMM = 0xE9;
+
+cell sid: u8[32] @ L.sid out;
+cell trigger: u8 @ L.trigger operand;
+cell cursor: u8 @ L.cursor operand;
+cell owner: u8 @ L.owner;
+cell count: u8 @ L.count;
+cell v1: u8[256] @ L.v1 ro;
+cell v2: u8[256] @ L.v2 ro;
+cell v3: u8[256] @ L.v3 ro;
+cell rows_lo: u8[256] @ L.rows_lo ro;
+cell rows_hi: u8[256] @ L.rows_hi ro;
+cell dl: u8[256] @ L.dl ro;
+cell rowptr: u16 @ (L.rowptr_lo, L.rowptr_hi);
+cell scratch: u8 @ L.scratch scratch;
+cell res: u8 @ L.res;
+cell fv: u8 @ L.fv;
+cell cp: u8 @ L.cp;
+cell extra: u8 @ L.extra;
+cell floor: u8 @ L.floor operand;
+cell cut_lo: u8 @ L.cut_lo operand;
+cell cut_hi: u8 @ L.cut_hi operand;
+cell cut_step_lo: u8 @ L.cut_step_lo operand;
+cell cut_step_hi: u8 @ L.cut_step_hi operand;
+cell op_lo: u8 @ L.op_lo operand;
+cell op_hi: u8 @ L.op_hi operand;
+cell step_lo: u8 @ L.step_lo operand;
+cell step_hi: u8 @ L.step_hi operand;
+
+proc sidrow(v: u16, lo: u8) {
+  mem[L.rowptr_lo] := lo;
+  stream r = rowptr @ 0;
+  let low = next r;
+  if low != 0 {
+    scratch := low << 1;
+    if low & 0x40 != 0 { mem[L.wgh + v] := next r; }
+    if low & 0x80 != 0 { mem[L.wgl + v] := next r; }
+    if low & 0x20 != 0 { mem[L.ad + v] := next r; }
+    if low & 0x10 != 0 { mem[L.sr + v] := next r; }
+    if low & 0x08 != 0 {
+      let t = next r;
+      mem[L.note + v] := ite(neg(t), t & 0x7F, (t + mem[L.note_base + v]) & 0x7F);
+    }
+    if low & 0x04 != 0 { mem[L.mode + v] := next r; }
+    if low & 0x02 != 0 {
+      let w = next r;
+      mem[L.pw_hi + v] := w;
+      mem[L.pw_lo + v] := w & 0xF0;
+    }
+  }
+  let high = next r;
+  if high == 0 {
+    return;
+  }
+  scratch := high << 1;
+  if high & 0x80 != 0 { mem[L.depth + v] := next r; }
+  if high & 0x40 != 0 {
+    let b = next r;
+    if b == 0 {
+      res := res & mem[L.vmask + v];
+    } elif b & 0x08 != 0 {
+      res := (res & 0x0F) | b | mem[L.vbit + v];
+    } else {
+      res := b;
+    }
+  }
+  if high & 0x20 != 0 { fv := next r; }
+  if high & 0x10 != 0 { cp := next r; }
+  if high & 0x08 != 0 {
+    let alo = next r;
+    let ahi = next r;
+    if !neg(ahi) {
+      cut_lo := alo;
+      cut_hi := ahi;
+      cut_step_lo := 0;
+      cut_step_hi := 0;
+    } elif ahi & 0x40 != 0 {
+      cut_step_lo := alo;
+      cut_step_hi := ahi & 0x3F;
+      op_lo := SBC_IMM;
+      op_hi := SBC_IMM;
+    } else {
+      cut_step_lo := alo;
+      cut_step_hi := ahi & 0x7F;
+      op_lo := ADC_IMM;
+      op_hi := ADC_IMM;
+    }
+  }
+}
+
+machine band[x in 0..3] {
+  step {
+    let v = u16(x * VOICE);
+    sid[x * 7 + 2] := mem[L.pw_lo + v];
+    sid[x * 7 + 3] := mem[L.pw_hi + v];
+    sid[x * 7] := mem[L.freq_lo + v];
+    sid[x * 7 + 1] := mem[L.freq_hi + v];
+    sid[x * 7 + 6] := mem[L.sr + v];
+    sid[x * 7 + 5] := mem[L.ad + v];
+    sid[x * 7 + 4] := mem[L.wgh + v] ^ mem[L.wgl + v];
+  }
+}
+
+machine filter {
+  step {
+    sid[0x17] := res;
+    sid[0x18] := fv | 0x0F;
+  }
+}
+
+machine cutoff {
+  step {
+    let c = false;
+    if op_hi == SBC_IMM {
+      c := !borrow(cut_lo, cut_step_lo, true);
+      cut_lo := cut_lo - cut_step_lo - 1;
+      let cin = c;
+      c := !borrow(cut_hi, cut_step_hi, !cin);
+      cut_hi := cut_hi - cut_step_hi - u8(!cin);
+    } else {
+      c := carry(cut_lo, cut_step_lo);
+      cut_lo += cut_step_lo;
+      let cin = c;
+      c := carry(cut_hi, cut_step_hi, cin);
+      cut_hi := cut_hi + cut_step_hi + u8(cin);
+    }
+    if neg(cut_hi) {
+      cut_hi := floor;
+    }
+    let out = cut_hi + extra + u8(c);
+    if neg(out) || out < floor {
+      out := floor;
+    }
+    sid[0x16] := out;
+  }
+}
+
+machine walker {
+  cell p0: u16 @ (L.ptr_lo, L.ptr_hi);
+  cell p1: u16 @ (L.ptr_lo + READER, L.ptr_hi + READER);
+  cell p2: u16 @ (L.ptr_lo + 2 * READER, L.ptr_hi + 2 * READER);
+  cell c0: u8 @ L.counter operand;
+  cell c1: u8 @ L.counter + READER operand;
+  cell c2: u8 @ L.counter + 2 * READER operand;
+  step {
+    if !neg(trigger) {
+      return;
+    }
+    let t = trigger & 0x0F;
+    trigger := t;
+    c0 := t;
+    c1 := t;
+    c2 := t;
+    let y = cursor;
+    if neg(v1[y]) {
+      if v3[y] == 0 {
+        y := v2[y];
+      } elif owner != y {
+        owner := y;
+        count := v3[y];
+        y := v2[y];
+      } else {
+        count -= 1;
+        if count != 0 {
+          y := v2[y];
+        } else {
+          owner := 0;
+          y := y + 1;
+        }
+      }
+    }
+    p0 := word(mem[L.pat_lo + u16(v1[y])], mem[L.pat_hi + u16(v1[y])]);
+    p1 := word(mem[L.pat_lo + u16(v2[y])], mem[L.pat_hi + u16(v2[y])]);
+    p2 := word(mem[L.pat_lo + u16(v3[y])], mem[L.pat_hi + u16(v3[y])]);
+    cursor := y + 1;
+  }
+}
+
+machine reader[x in 0..3] {
+  cell counter: u8 @ L.counter + x * READER operand;
+  cell ptr: u16 @ (L.ptr_lo + x * READER, L.ptr_hi + x * READER);
+  cell copy1: u16 @ (L.copy1_lo + x * READER, L.copy1_hi + x * READER);
+  cell copy2: u16 @ (L.copy2_lo + x * READER, L.copy2_hi + x * READER);
+  cell copy3: u16 @ (L.copy3_lo + x * READER, L.copy3_hi + x * READER);
+  cell flag: u8 @ L.flag + x * READER operand;
+  cell gate_a: u8 @ L.gate_a + x * READER operand;
+  cell gate_b: u8 @ L.gate_b + x * READER operand;
+  cell gate_n: u8 @ L.gate_n + x * READER operand;
+  cell row_a: u8 @ L.row_a + x * VOICE operand;
+  cell count_a: u8 @ L.count_a + x * VOICE operand;
+  cell row_b: u8 @ L.row_b + x * VOICE operand;
+  cell count_b: u8 @ L.count_b + x * VOICE operand;
+  cell note_base: u8 @ L.note_base + x * VOICE operand;
+  cell note: u8 @ L.note + x * VOICE;
+  cell slide_lo: u8 @ L.slide_lo + x * VOICE;
+  cell slide_hi: u8 @ L.slide_hi + x * VOICE;
+  cell mode: u8 @ L.mode + x * VOICE;
+  step {
+    if !neg(counter) {
+      counter -= 1;
+      if !neg(counter) {
+        return;
+      }
+      copy1 := ptr;
+      copy2 := ptr;
+      copy3 := ptr;
+      let f = mem[ptr];
+      flag := f;
+      gate_a := f << 1;
+      gate_b := f << 2;
+      gate_n := f << 3;
+      return;
+    }
+    let y = 1;
+    if neg(gate_a) {
+      row_a := mem[ptr + u16(y)];
+      count_a := 0;
+      y += 1;
+    }
+    if neg(gate_b) {
+      row_b := mem[copy2 + u16(y)];
+      count_b := 0;
+      y += 1;
+    }
+    if neg(gate_n) {
+      let n = mem[copy3 + u16(y)];
+      note_base := n;
+      note := n;
+      slide_lo := 0;
+      slide_hi := 0;
+      mode := 0;
+      y += 1;
+    }
+    let fl = flag;
+    if neg(fl) {
+      trigger := fl;
+    } else {
+      ptr := ptr + u16(y);
+      counter := fl & 0x0F;
+    }
+  }
+}
+
+machine layer[k in 0..6] {
+  cell blk_counter: u8 @ L.blk_counter + k * BLOCK operand;
+  cell blk_rowidx: u8 @ L.blk_rowidx + k * BLOCK operand;
+  step {
+    if neg(blk_counter) {
+      return;
+    }
+    if blk_counter != 0 {
+      blk_counter -= 1;
+      return;
+    }
+    let eff = blk_rowidx;
+    if rows_hi[eff] == 0 {
+      eff := rows_lo[eff];
+    }
+    mem[L.rowptr_hi] := rows_hi[eff];
+    blk_counter := dl[eff];
+    blk_rowidx := eff + 1;
+    sidrow(u16(k % 3 * VOICE), rows_lo[eff]);
+  }
+}
+
+machine pitch[x in 0..3] {
+  cell mode: u8 @ L.mode + x * VOICE;
+  cell slide_lo: u8 @ L.slide_lo + x * VOICE;
+  cell slide_hi: u8 @ L.slide_hi + x * VOICE;
+  cell detune: u8 @ L.detune + x * VOICE ro;
+  cell note: u8 @ L.note + x * VOICE;
+  cell freq_lo: u8 @ L.freq_lo + x * VOICE operand;
+  cell freq_hi: u8 @ L.freq_hi + x * VOICE operand;
+  step {
+    let plo = mem[L.pitch_lo + u16(note)];
+    let phi = mem[L.pitch_hi + u16(note)];
+    if mode == 0 {
+      freq_lo := plo + detune;
+      freq_hi := phi;
+    } else {
+      if !neg(mode) {
+        let y = u16(mode + note);
+        let lo = mem[L.pitch_lo - 24 + y];
+        let lo_prev = mem[L.pitch_lo - 25 + y];
+        let hi = mem[L.pitch_hi - 24 + y];
+        let hi_prev = mem[L.pitch_hi - 25 + y];
+        step_lo := lo - lo_prev;
+        step_hi := hi - hi_prev - u8(lo < lo_prev);
+        freq_lo := plo + step_lo;
+        freq_hi := phi + step_hi + u8(carry(plo, step_lo));
+      } else {
+        let r = u16((mode << 1) & 0x7F);
+        let up = !(mode & 0x40 != 0);
+        if up {
+          let c = carry(slide_lo, mem[L.rate_lo + r]);
+          slide_lo += mem[L.rate_lo + r];
+          slide_hi := slide_hi + mem[L.rate_hi + r] + u8(c);
+        } else {
+          let b = slide_lo < mem[L.rate_lo + r];
+          slide_lo -= mem[L.rate_lo + r];
+          slide_hi := slide_hi - mem[L.rate_hi + r] - u8(b);
+        }
+        freq_lo := plo + slide_lo;
+        freq_hi := phi + slide_hi + u8(carry(plo, slide_lo));
+      }
+    }
+  }
+}
+
+machine sweep[x in 0..3] {
+  cell depth: u8 @ L.depth + x * VOICE;
+  cell lo: u8 @ L.pw_lo + x * VOICE;
+  cell hi: u8 @ L.pw_hi + x * VOICE;
+  step {
+    if depth == 0 {
+      return;
+    }
+    if neg(depth) {
+      let c = carry(lo, depth & 0x7F);
+      lo += depth & 0x7F;
+      if c {
+        if hi == 0x0F {
+          lo := 0xF8;
+          depth ^= 0x80;
+        } else {
+          hi += 1;
+        }
+      }
+    } else {
+      let b = borrow(lo, depth, true);
+      lo := lo - depth - 1;
+      if b {
+        if hi == 0 {
+          lo := 0x01;
+          depth ^= 0x80;
+        } else {
+          hi -= 1;
+        }
+      }
+    }
+  }
+}
+
+schedule {
+  for v in 0..3 {
+    band[v];
+  }
+  filter;
+  cutoff;
+  walker;
+  for v in 0..3 {
+    reader[v];
+  }
+  for k in 0..6 {
+    layer[k];
+  }
+  pitch[2];
+  sweep[2];
+  pitch[1];
+  sweep[1];
+  pitch[0];
+  sweep[0];
+}

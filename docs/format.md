@@ -479,7 +479,8 @@ section).
 
 ### SID write band order
 
-Each main tick emits exactly 24 SID register writes, in order:
+Each play call (one NMI, so every call of a multi-speed tune) emits exactly 24
+SID register writes, in order:
 
 ```
 V0 PW_lo, PW_hi, F_lo, F_hi, SR, AD, CTRL   (7)

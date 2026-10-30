@@ -13,8 +13,8 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from pysidtracker import SidImage
-from pysidtracker.testing import resolve_tune
+from pysidtracker import SidImage, song_frames
+from pysidtracker.testing import resolve_tune, whole_song
 
 from pydefmon import DefmonPlayer, DefmonSong
 from pydefmon.defmon import DefmonError
@@ -27,13 +27,13 @@ class TestDefmonPlayer(unittest.TestCase):
         self.replay = synthetic_replay()
 
     def test_render_grid_shape_and_forward_fill(self):
-        grid = DefmonPlayer(self.replay).render_grid(5)
-        self.assertEqual(len(grid), 5)
+        grid = DefmonPlayer(self.replay).render_grid(whole_song(5))
+        self.assertEqual(len(grid), whole_song(5))
         self.assertTrue(all(len(row) == 25 for row in grid))
         # init seeds $D418=$0F and $D404=$21; play increments $D400 each frame.
         self.assertTrue(all(row[0x18] == 0x0F for row in grid))
         self.assertTrue(all(row[0x04] == 0x21 for row in grid))
-        self.assertEqual([row[0x00] for row in grid], [1, 2, 3, 4, 5])
+        self.assertEqual([row[0x00] for row in grid][:5], [1, 2, 3, 4, 5])
 
     def test_play_frame_diffs_after_baseline(self):
         player = DefmonPlayer(self.replay)
@@ -49,8 +49,8 @@ class TestDefmonPlayer(unittest.TestCase):
         """The player render equals the base jennings renderer (same real code)."""
         from pysidtracker import register_grid
 
-        grid = DefmonPlayer(self.replay).render_grid(8)
-        ref = register_grid(self.replay, 8, illegal_opcodes=True)
+        grid = DefmonPlayer(self.replay).render_grid(whole_song(8))
+        ref = register_grid(self.replay, whole_song(8), illegal_opcodes=True)
         for row in ref:
             for i in (3, 10, 17):
                 row[i] &= 0x0F
@@ -60,15 +60,17 @@ class TestDefmonPlayer(unittest.TestCase):
         # Construct a replay whose init writes $FF to a pulse-width-hi register
         # ($D403); render_grid must mask it to the low nibble.
         raw = synthetic_replay(init="LDA #$FF\nSTA $D403\nRTS")
-        grid = DefmonPlayer(raw).render_grid(1)
+        grid = DefmonPlayer(raw).render_grid(whole_song(1))
         self.assertEqual(grid[0][0x03], 0x0F)
 
     def test_subtune_from_start_song(self):
         raw = synthetic_replay(songs=4, start_song=3)  # subtune 2
         player = DefmonPlayer(raw)
         # Accumulator carried the subtune into init; render still runs.
-        self.assertEqual(len(player.render_grid(2)), 2)
-        self.assertEqual(len(DefmonPlayer(raw, subtune=0).render_grid(1)), 1)
+        self.assertEqual(len(player.render_grid(whole_song(2))), whole_song(2))
+        self.assertEqual(
+            len(DefmonPlayer(raw, subtune=0).render_grid(whole_song(1))), whole_song(1)
+        )
 
     def test_cycles_per_frame_is_pal_frame_without_cia(self):
         # The synthetic init programs no CIA timer, so cadence is the PAL frame.
@@ -76,11 +78,15 @@ class TestDefmonPlayer(unittest.TestCase):
 
     def test_accepts_sidimage_and_path(self):
         image = SidImage.from_bytes(self.replay)
-        self.assertEqual(len(DefmonPlayer(image).render_grid(1)), 1)
+        self.assertEqual(
+            len(DefmonPlayer(image).render_grid(whole_song(1))), whole_song(1)
+        )
         with TemporaryDirectory() as tmp:
             path = Path(tmp) / "synth.sid"
             path.write_bytes(self.replay)
-            self.assertEqual(len(DefmonPlayer(path).render_grid(1)), 1)
+            self.assertEqual(
+                len(DefmonPlayer(path).render_grid(whole_song(1))), whole_song(1)
+            )
 
     def test_workfile_without_player_raises(self):
         # A bare .prg workfile has no init/play routine.
@@ -91,8 +97,8 @@ class TestDefmonPlayer(unittest.TestCase):
         # The raster read subscription. Value is cycle-derived; only the run path
         # is asserted.
         raw = synthetic_replay(play="LDA $D012\nSTA $D400\nRTS")
-        grid = DefmonPlayer(raw).render_grid(3)
-        self.assertEqual(len(grid), 3)
+        grid = DefmonPlayer(raw).render_grid(whole_song(3))
+        self.assertEqual(len(grid), whole_song(3))
 
     def test_loader_zero_page_words(self):
         # The load start hi ($AD) and load end lo ($AE, $2D) of the loader.
@@ -100,7 +106,7 @@ class TestDefmonPlayer(unittest.TestCase):
             play="LDA $AD\nSTA $D400\nLDA $AE\nSTA $D401\nLDA $2D\nSTA $D402\nRTS"
         )
         end = SidImage.from_bytes(raw).end
-        row = DefmonPlayer(raw).render_grid(1)[0]
+        row = DefmonPlayer(raw).render_grid(whole_song(1))[0]
         self.assertEqual(row[:3], [0x10, end & 0xFF, end & 0xFF])
 
 
@@ -115,8 +121,9 @@ class TestDefmonPlayerRealReplay(unittest.TestCase):
 
     def test_real_replay_renders_and_reads(self):
         raw = self._real_replay()
-        grid = DefmonPlayer(raw).render_grid(50)
-        self.assertEqual(len(grid), 50)
+        frames = song_frames(raw)
+        grid = DefmonPlayer(raw).render_grid(frames)
+        self.assertEqual(len(grid), frames)
         self.assertTrue(all(len(row) == 25 for row in grid))
         # The same bytes also parse through the DefmonSong reader.
         song = DefmonSong.from_bytes(raw)

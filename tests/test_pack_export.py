@@ -7,7 +7,7 @@ parse to the matching ``.sid``'s structural model and play byte-exactly like it.
 
 import unittest
 
-from pysidtracker import SidImage
+from pysidtracker import SidImage, song_frames
 from pysidtracker.header import write_psid
 from pysidtracker.testing import resolve_tune
 
@@ -21,7 +21,6 @@ from tests._support import editor_image_bytes, fixture_path
 
 _DANSA = "dansa_in.prg"
 _SID = "MUSICIANS/G/Goto80/Dansa_in.sid"
-_RENDER = 60
 
 
 def _pack_raw(editor: bytes, worktune: bytes) -> bytes:
@@ -95,8 +94,9 @@ class TestPackExport(unittest.TestCase):
         )
 
     def test_raw_player_renders(self):
-        grid = DefmonPlayer(self.raw).render_grid(_RENDER)
-        self.assertEqual(len(grid), _RENDER)
+        frames = song_frames(self.raw, None)
+        grid = DefmonPlayer(self.raw).render_grid(frames)
+        self.assertEqual(len(grid), frames)
         self.assertEqual(len(grid[0]), 25)
 
     def test_export_metadata_locates_the_player(self):
@@ -106,9 +106,10 @@ class TestPackExport(unittest.TestCase):
         self.assertEqual(exe, ("", "", "", 0x0801, 0x1000, 0x1003))
 
     def test_exe_player_renders_and_matches_raw(self):
+        frames = song_frames(self.raw, None)
         self.assertEqual(
-            DefmonPlayer(self.raw).render_grid(_RENDER),
-            DefmonPlayer(self.exe).render_grid(_RENDER),
+            DefmonPlayer(self.raw).render_grid(frames),
+            DefmonPlayer(self.exe).render_grid(frames),
         )
 
     def test_sid_stripped_to_raw_prg_roundtrips(self):
@@ -153,9 +154,10 @@ class TestPackExportPlayer(unittest.TestCase):
         prg = (0x1000).to_bytes(2, "little") + bytes(
             SidImage.from_bytes(self.psid).image
         )
+        frames = song_frames(self.psid, None)
         self.assertEqual(
-            DefmonPlayer(self.psid).render_grid(30),
-            DefmonPlayer(prg).render_grid(30),
+            DefmonPlayer(self.psid).render_grid(frames),
+            DefmonPlayer(prg).render_grid(frames),
         )
 
 

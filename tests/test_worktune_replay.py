@@ -9,7 +9,7 @@ Fixtures are cached, never committed; tests skip when unreachable.
 
 import unittest
 
-from pysidtracker import SidImage
+from pysidtracker import SidImage, song_frames
 from pysidtracker.header import write_psid
 from pysidtracker.testing import resolve_tune
 
@@ -32,7 +32,6 @@ _WORKTUNES = (
     "vacuole.prg",
 )
 _DANSA_HVSC = "MUSICIANS/G/Goto80/Dansa_in.sid"
-_RENDER_FRAMES = 600
 
 
 def _assert_sound(test, song, name: str) -> None:
@@ -99,14 +98,18 @@ class TestWorktuneReplay(unittest.TestCase):
 
     def test_packed_replay_renders(self):
         song = DefmonSong.from_bytes(fixture_path("dansa_in.prg").read_bytes())
-        grid = DefmonPlayer(song.to_replay(self.editor)).render_grid(_RENDER_FRAMES)
-        self.assertEqual(len(grid), _RENDER_FRAMES)
+        replay = song.to_replay(self.editor)
+        frames = song_frames(replay, None)
+        grid = DefmonPlayer(replay).render_grid(frames)
+        self.assertEqual(len(grid), frames)
         self.assertEqual(len(grid[0]), 25)
 
     def test_accepts_packed_defmonsong(self):
         song = DefmonSong.from_bytes(fixture_path("dansa_in.prg").read_bytes())
-        packed = DefmonSong.from_bytes(song.to_replay(self.editor))
-        self.assertEqual(len(DefmonPlayer(packed).render_grid(8)), 8)
+        replay = song.to_replay(self.editor)
+        frames = song_frames(replay, None)
+        packed = DefmonSong.from_bytes(replay)
+        self.assertEqual(len(DefmonPlayer(packed).render_grid(frames)), frames)
 
     def test_editor_form_song_rejects_player(self):
         song = DefmonSong.from_bytes(fixture_path("dansa_in.prg").read_bytes())
@@ -143,10 +146,11 @@ class TestWorktuneReplay(unittest.TestCase):
             songs=rip.header.songs,
             start_song=rip.header.start_song,
         )
-        a = DefmonPlayer(replay).render_grid(_RENDER_FRAMES)
-        b = DefmonPlayer(rip_reset).render_grid(_RENDER_FRAMES)
-        diffs = [f for f in range(_RENDER_FRAMES) if a[f] != b[f]]
-        self.assertEqual(diffs, [], f"{len(diffs)}/{_RENDER_FRAMES} frames differ")
+        frames = song_frames(replay, None)
+        a = DefmonPlayer(replay).render_grid(frames)
+        b = DefmonPlayer(rip_reset).render_grid(frames)
+        diffs = [f for f in range(frames) if a[f] != b[f]]
+        self.assertEqual(diffs, [], f"{len(diffs)}/{frames} frames differ")
 
 
 if __name__ == "__main__":

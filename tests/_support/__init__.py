@@ -205,8 +205,8 @@ def prehistoric_56block_image() -> Optional[bytes]:
     )
 
 
-def editor_grid(song_text: str, frames: int) -> list:
-    """``frames`` SID register frames of ``song_text`` (the song grammar) on the
+def editor_player(song_text: str):
+    """A :class:`~pydefmon.DefmonPlayer` of ``song_text`` (the song grammar) on the
     editor's own player; raises ``unittest.SkipTest`` without the editor image.
     """
     # pylint: disable-next=import-outside-toplevel
@@ -219,4 +219,11 @@ def editor_grid(song_text: str, frames: int) -> list:
     if editor is None:
         raise unittest.SkipTest("defMON editor image unavailable")
     prg = Tune.parse(song_text).to_song().to_bytes()
-    return DefmonPlayer(editor_replay(editor, prg)).render_grid(frames)
+    return DefmonPlayer(editor_replay(editor, prg))
+
+
+def editor_grid(song_text: str, frames: int) -> list:
+    """``frames`` SID register frames of ``song_text`` (the song grammar) on the
+    editor's own player; raises ``unittest.SkipTest`` without the editor image.
+    """
+    return editor_player(song_text).render_grid(frames)

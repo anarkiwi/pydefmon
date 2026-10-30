@@ -5,7 +5,7 @@ import unittest
 
 from pydefmon import NOTE_PITCH_HI, NOTE_PITCH_LO, DefmonSong, Tune
 
-from tests._support import editor_grid
+from tests._support import editor_grid, editor_player
 
 _FREQ = (0, 7, 14)  # freq lo per voice; hi is the next register
 _CTRL = (4, 11, 18)
@@ -155,6 +155,29 @@ class TestColumns(unittest.TestCase):
 
 def _cutoff(rows: str, frames: int = 14) -> list[int]:
     return [f[_CUTOFF_HI] for f in _one_voice(rows, frames=frames)][2:]
+
+
+class TestWriteBand(unittest.TestCase):
+    def test_every_play_call_writes_the_band_in_documented_order(self):
+        order = [2, 3, 0, 1, 6, 5, 4, 9, 10, 7, 8, 13, 12, 11]
+        order += [16, 17, 14, 15, 20, 19, 18, 23, 24, 22]
+        for speed in (1, 2, 4):
+            with self.subTest(speed=speed):
+                text = (
+                    f"tempo $4cc7 x{speed}\nsid 1\n $00: $01 $00 $00\n{_SILENT}"
+                    "pattern $01\n 0: n $31 a $01\n 200: end 0\n"
+                    "row $01 WGh $40 WGl $01 stop\n"
+                )
+                player = editor_player(text)
+                writes = []
+                # pylint: disable-next=protected-access
+                player._mpu.memory.subscribe_to_write(
+                    range(0xD400, 0xD419), lambda addr, _: writes.append(addr - 0xD400)
+                )
+                for _ in range(6):
+                    writes.clear()
+                    player.play_frame()
+                    self.assertEqual(writes, order)
 
 
 class TestFilter(unittest.TestCase):

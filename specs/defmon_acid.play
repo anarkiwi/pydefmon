@@ -1,6 +1,6 @@
 // defMON ACID cutoff slide: a 16-bit accumulator stepped by ADC or SBC, the
 // instruction chosen by a self-modified opcode byte in the code (an operand cell);
-// a high byte with bit 7 set, or an output below 2, gives the floor.
+// a high byte with bit 7 set, or an output below the floor, gives the floor.
 spec defmon_acid;
 layout { acc_lo, acc_hi, step_lo, step_hi, opcode, extra, floor, sid: addr; }
 const SBC_IMM = 0xE9;
@@ -33,7 +33,7 @@ machine acid {
       acc_hi := floor;
     }
     let out = acc_hi + extra + u8(c);
-    if neg(out) || out < 2 {
+    if neg(out) || out < floor {
       out := floor;
     }
     sid[0x16] := out;

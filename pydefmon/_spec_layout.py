@@ -48,3 +48,52 @@ PWSWEEP_BLOCK = (0x495, 0x4E3)
 def pwsweep_binding(base: int) -> dict:
     """The ``defmon_pwsweep.play`` layout of the player at ``base``."""
     return {name: base + off for name, off in PWSWEEP_OFFSETS.items()}
+
+
+#: ``defmon_sidrow.play`` layout: offsets from the player base; per-voice cells
+#: are those of voice 0, the next voices follow ``VOICE_STRIDE`` bytes apart.
+SIDROW_OFFSETS = {
+    "wgh": 0x3B,
+    "wgl": 0x3D,
+    "ad": 0x39,
+    "sr": 0x37,
+    "note": 0x37F,
+    "note_base": 0x2ED,
+    "af": 0x1B,
+    "pw_lo": 0x23,
+    "pw_hi": 0x25,
+    "ps": 0x1E,
+    "vbit": 0x20,
+    "vmask": 0x21,
+    "res": 0xAA,
+    "fv": 0xAF,
+    "acc_lo": 0xB6,
+    "acc_hi": 0xBE,
+    "step_lo": 0xB9,
+    "step_hi": 0xC0,
+    "op_lo": 0xB8,
+    "op_hi": 0xBF,
+}
+
+#: The row interpreter's entry (``STA $FB``), and the operand of its CP store, which
+#: relocated replays leave at the address it had in the unrelocated player.
+SIDROW_ENTRY = 0x6B0
+SIDROW_CP_OPERAND = 0x765
+SIDROW_SCRATCH_OPERAND = 0x6BA
+ROW_POINTER = (0xFB, 0xFC)
+VOICE_STRIDE = 0x31
+
+
+def sidrow_scratch(mem, base: int) -> int:
+    """The zero-page byte the row interpreter keeps its shifted bitmap in."""
+    return mem[base + SIDROW_SCRATCH_OPERAND]
+
+
+def sidrow_binding(mem, base: int, voice: int) -> dict:
+    """The ``defmon_sidrow.play`` layout of the player at ``base`` in ``mem``, for ``voice``."""
+    binding = {name: base + off for name, off in SIDROW_OFFSETS.items()}
+    cp = SIDROW_CP_OPERAND + base
+    binding["cp"] = mem[cp] | mem[cp + 1] << 8
+    binding["ptr_lo"], binding["ptr_hi"] = ROW_POINTER
+    binding["voice"] = voice
+    return binding

@@ -194,11 +194,29 @@ class TestWriteBand(unittest.TestCase):
 
 
 class TestFilter(unittest.TestCase):
-    def test_re_is_written_to_resonance_routing_unchanged(self):
-        for value in (0x00, 0x01, 0x80, 0xF1, 0xFF):
-            with self.subTest(value=value):
-                frame = _one_voice(f"row $01 RE ${value:02x} stop\n", frames=6)[-1]
-                self.assertEqual(frame[_RES_ROUTE], value)
+    def test_re_dispatches_on_the_byte_and_the_voice_routing_bit(self):
+        # (first RE, second RE) -> $D417 for voice 1 (bit $01) and voice 2 (bit $02)
+        cases = {
+            ("$f1", "$00"): (0xF0, 0xF1),
+            ("$f1", "$18"): (0x19, 0x1B),
+            ("$f3", "$18"): (0x1B, 0x1B),
+            ("$f0", "$18"): (0x19, 0x1A),
+            ("$f1", "$0f"): (0x0F, 0x0F),
+            ("$f1", "$05"): (0x05, 0x05),
+        }
+        for index, voices in enumerate(("$01 $00 $00", "$00 $01 $00")):
+            for (first, second), want in cases.items():
+                with self.subTest(voices=voices, first=first, second=second):
+                    rows = (
+                        f"row $01 RE {first} hold 1 -> $02\n"
+                        f"row $02 RE {second} stop\n"
+                    )
+                    grid = editor_grid(
+                        f"sid 1\n $00: {voices}\n{_SILENT}pattern $01\n"
+                        f" 0: n ${_N:02x} a $01\n 200: end 0\n{rows}",
+                        14,
+                    )
+                    self.assertEqual(grid[-1][_RES_ROUTE], want[index])
 
     def test_acid_high_bit7_clear_resets_the_cutoff_absolutely(self):
         self.assertEqual(set(_cutoff("row $01 ACID $0510 stop\n")), {5})

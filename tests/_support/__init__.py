@@ -227,3 +227,61 @@ def editor_grid(song_text: str, frames: int) -> list:
     editor's own player; raises ``unittest.SkipTest`` without the editor image.
     """
     return editor_player(song_text).render_grid(frames)
+
+
+def spec_player(data: bytes, spec_name: str, entry_offsets: "dict[int, callable]"):
+    """A :class:`~pysidtracker.playspec.SpecPlayer` of the replay ``data`` that runs
+    ``specs/<spec_name>.play`` for each call into the player's code at the offsets in
+    ``entry_offsets`` (offset from the player base -> ``binding(view, base)``) and the
+    replay's own 6502 for everything else.
+    """
+    # pylint: disable=import-outside-toplevel
+    from pathlib import Path
+
+    from pysidtracker import SidImage
+    from pysidtracker import registers as reg
+    from pysidtracker.cadence import playroutine_cadence
+    from pysidtracker.playspec import SpecPlayer, parse
+
+    from pydefmon._spec_layout import player_base
+
+    class _Player(SpecPlayer):
+        """The first modelled entry stands in for the probe of the play routine, which
+        need not reach one on its first call."""
+
+        def _probe(self, play):
+            return min(self._entries())
+
+    spec = parse(
+        (
+            Path(__file__).resolve().parents[2] / "specs" / f"{spec_name}.play"
+        ).read_text()
+    )
+    image = SidImage.from_bytes(data)
+    header = image.header
+    init = header.init_address or header.real_load_address
+    subtune = (header.start_song or 1) - 1
+    entry_of = {}
+
+    def entries(view):
+        base = player_base(view)
+        entry_of.update({base + off: (base, off) for off in entry_offsets})
+        return set(entry_of)
+
+    def bind(view, entry):
+        base, off = entry_of[entry]
+        return entry_offsets[off](view, base)
+
+    return _Player(
+        spec,
+        image.image,
+        image.load,
+        init,
+        header.play_address or init,
+        subtune,
+        bind=bind,
+        entries=entries,
+        illegal_opcodes=True,
+        sid_model=reg.sid_model_for_flags(header.flags),
+        cycles_per_frame=playroutine_cadence(image, subtune=subtune).cycles_per_call,
+    )

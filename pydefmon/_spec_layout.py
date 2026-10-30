@@ -89,13 +89,13 @@ def sidrow_scratch(mem, base: int) -> int:
     return mem[base + SIDROW_SCRATCH_OPERAND]
 
 
-def sidrow_binding(mem, base: int, voice: int) -> dict:
-    """The ``defmon_sidrow.play`` layout of the player at ``base`` in ``mem``, for ``voice``."""
+def sidrow_binding(mem, base: int) -> dict:
+    """The ``defmon_sidrow.play`` layout of the player at ``base`` in ``mem``."""
     binding = {name: base + off for name, off in SIDROW_OFFSETS.items()}
     cp = SIDROW_CP_OPERAND + base
     binding["cp"] = mem[cp] | mem[cp + 1] << 8
     binding["ptr_lo"], binding["ptr_hi"] = ROW_POINTER
-    binding["voice"] = voice
+    binding["scratch"] = sidrow_scratch(mem, base)
     return binding
 
 
@@ -221,4 +221,30 @@ def reader_binding(base: int, voice: int) -> dict:
     """The ``defmon_reader.play`` layout of the player at ``base``, for ``voice``."""
     binding = {name: base + off for name, off in READER_OFFSETS.items()}
     binding["voice"] = voice
+    return binding
+
+
+#: ``defmon_band.play`` layout: offsets from the player base of voice 0's record fields
+#: and of the routing and filter-mode operands the band ends with.
+BAND_OFFSETS = {
+    "pw_lo": 0x23,
+    "pw_hi": 0x25,
+    "freq_lo": 0x2D,
+    "freq_hi": 0x2F,
+    "sr": 0x37,
+    "ad": 0x39,
+    "wgh": 0x3B,
+    "wgl": 0x3D,
+    "res": 0xAA,
+    "fv": 0xAF,
+}
+
+#: The band: its first instruction and the first of the cutoff slide that follows it.
+BAND_BLOCK = (0x22, 0xB5)
+
+
+def band_binding(base: int) -> dict:
+    """The ``defmon_band.play`` layout of the player at ``base``."""
+    binding = {name: base + off for name, off in BAND_OFFSETS.items()}
+    binding["sid"] = SID_BASE
     return binding

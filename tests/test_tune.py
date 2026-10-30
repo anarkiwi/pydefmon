@@ -8,6 +8,7 @@ defMON release worktunes and the HVSC corpus and skip when unreachable.
 import dataclasses
 import unittest
 
+from pysidtracker import song_frames
 from pysidtracker.facets import Entry, detected
 
 from pydefmon import DefmonSong, Event, Jump, PatternEvent, Play, Row, SidtabRow, Tune
@@ -20,7 +21,6 @@ from pydefmon.tune import ACTIVE, JP_MARKER, JP_TARGET, _layout
 from tests._support import editor_image_bytes, fixture_path, resolve_corpus
 from tests.test_worktune_replay import _WORKTUNES
 
-_RENDER_FRAMES = 600
 _SOUND_TUNES = ("glow_worm.prg", "matsam0t.prg")
 _PACKER_TUNES = (
     "glow_worm.prg",
@@ -414,9 +414,12 @@ class TestWorktunes(unittest.TestCase):
         editor = self._editor()
         prg = self._worktune(name)
         canon = Tune.from_song(DefmonSong.from_bytes(prg)).canonical()
+        replays = [
+            editor_replay(editor, data) for data in (prg, canon.to_song().to_bytes())
+        ]
+        frames = song_frames(replays[0], None)
         original, rewritten = (
-            DefmonPlayer(editor_replay(editor, data)).render_grid(_RENDER_FRAMES)
-            for data in (prg, canon.to_song().to_bytes())
+            DefmonPlayer(replay).render_grid(frames) for replay in replays
         )
         self.assertGreater(len(set(map(tuple, original))), 1)
         self.assertEqual(original, rewritten)

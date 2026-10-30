@@ -6,7 +6,6 @@ whole 64 KiB, outside the stack page, must agree.
 """
 
 import random
-from pathlib import Path
 
 import pytest
 
@@ -18,19 +17,15 @@ from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
 from pydefmon._spec_layout import (
+    spec_text,
     CASCADE_BLOCKS,
-    CASCADE_OFFSETS,
     RTS,
     SIDROW_ENTRY,
     cascade_binding,
     player_base,
 )
 
-SPEC = parse(
-    (
-        Path(__file__).resolve().parent.parent / "specs" / "defmon_cascade.play"
-    ).read_text()
-)
+SPEC = parse(spec_text("defmon_cascade"))
 # Replays assembled at $1000: elsewhere the jump lookup reads tables at the
 # unrelocated address.
 TUNES = (

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-from pysidtracker import make_oracle_fixtures
+from pysidtracker import make_oracle_fixtures, song_frames
 from pysidtracker.oracle import aligned_match
 from pysidtracker.testing import TuneFetchError, oracle_grid, resolve_tune
 
@@ -66,22 +66,19 @@ def test_render_matches_oracle(oracle_match):  # noqa: F811
 # Subtunes past song 1 or diverging past the fixtures' window: Goto80 replays
 # whose stray pattern pointers read the BASIC loader's zero-page words.
 SUBTUNES = {
-    "goto80_reloaded_8": ("MUSICIANS/G/Goto80/Rent-A-Cop_Reloaded.sid", 8, 250),
-    "goto80_reloaded_title": (
-        "MUSICIANS/G/Goto80/Rent-A-Cop_Reloaded_title.sid",
-        1,
-        1500,
-    ),
+    "goto80_reloaded_8": ("MUSICIANS/G/Goto80/Rent-A-Cop_Reloaded.sid", 8),
+    "goto80_reloaded_title": ("MUSICIANS/G/Goto80/Rent-A-Cop_Reloaded_title.sid", 1),
 }
 
 
 @pytest.mark.oracle
 @pytest.mark.parametrize("key", list(SUBTUNES))
 def test_subtune_matches_oracle(key):
-    relpath, song, nframes = SUBTUNES[key]
+    relpath, song = SUBTUNES[key]
     path = resolve_tune(relpath)
     if path is None:
         raise TuneFetchError(f"tune {key} unavailable (offline, not cached)")
+    nframes = song_frames(path, song)
     expected = oracle_grid(path, seconds=nframes // 50 + 2, frames=nframes, song=song)
     rendered = oracle_hvsc.render(path.read_bytes(), song, len(expected))[0].tolist()
     assert aligned_match(expected, rendered), f"{key}: render differs from oracle"

@@ -74,5 +74,13 @@ class TestDocsTestReferences(unittest.TestCase):
         )
 
 
+class TestWholeSongComparisons(unittest.TestCase):
+    def test_no_render_or_compare_uses_a_hard_coded_length(self):
+        from pysidtracker.lint import truncated_comparisons
+
+        problems = truncated_comparisons(sorted((REPO_ROOT / "tests").rglob("*.py")))
+        self.assertEqual(problems, [], "\n".join(problems))
+
+
 if __name__ == "__main__":
     unittest.main()

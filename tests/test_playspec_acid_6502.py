@@ -6,7 +6,6 @@ and the accumulator must agree.
 """
 
 import random
-from pathlib import Path
 
 import pytest
 
@@ -17,11 +16,15 @@ from pysidtracker.playspec.pyexec import controls
 from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import ACID_BLOCK, SID_BASE, acid_binding, player_base
-
-SPEC = parse(
-    (Path(__file__).resolve().parent.parent / "specs" / "defmon_acid.play").read_text()
+from pydefmon._spec_layout import (
+    spec_text,
+    ACID_BLOCK,
+    SID_BASE,
+    acid_binding,
+    player_base,
 )
+
+SPEC = parse(spec_text("defmon_acid"))
 TUNES = (
     "MUSICIANS/I/Ilkke/Glow_Worm.sid",
     "MUSICIANS/D/Demsky_Martin/Acid_Bassline.sid",

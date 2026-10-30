@@ -6,7 +6,6 @@ same memory, with the carry the entry leaves random, and depth and pulse width m
 """
 
 import random
-from pathlib import Path
 
 import pytest
 
@@ -17,13 +16,9 @@ from pysidtracker.playspec.pyexec import controls
 from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import PWSWEEP_BLOCK, player_base, pwsweep_binding
+from pydefmon._spec_layout import spec_text, PWSWEEP_BLOCK, player_base, pwsweep_binding
 
-SPEC = parse(
-    (
-        Path(__file__).resolve().parent.parent / "specs" / "defmon_pwsweep.play"
-    ).read_text()
-)
+SPEC = parse(spec_text("defmon_pwsweep"))
 TUNES = (
     "MUSICIANS/I/Ilkke/Glow_Worm.sid",
     "MUSICIANS/D/Demsky_Martin/Acid_Bassline.sid",

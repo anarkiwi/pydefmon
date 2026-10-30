@@ -7,9 +7,19 @@ fixed offsets from the player base (the signature address less
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pysidtracker import CodePattern, find_code_first
 
 from pydefmon._sid_format import _SIGNATURE_FROM_PLAYER_BASE, find_signature
+
+SPECS = Path(__file__).resolve().parent / "specs"
+
+
+def spec_text(name: str) -> str:
+    """The source of the packaged playspec ``name`` (``defmon``, ``defmon_band``...)."""
+    return (SPECS / f"{name}.play").read_text(encoding="utf-8")
+
 
 SID_BASE = 0xD400
 

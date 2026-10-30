@@ -55,7 +55,7 @@ defmon = "pydefmon.format:defmon_format"
 packages = ["pydefmon"]
 
 [tool.setuptools.package-data]
-pydefmon = ["*.lark"]
+pydefmon = ["*.lark", "specs/*.play"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -229,13 +229,9 @@ def editor_grid(song_text: str, frames: int) -> list:
     return editor_player(song_text).render_grid(frames)
 
 
-def replay_player(data: bytes, *, subtune: "int | None" = None):
-    """The replay ``data`` on the CPU alone: an :class:`~pysidtracker.EmuPlayer`, the
-    reference the playspec-backed :class:`~pydefmon.DefmonPlayer` is held to;
-    ``subtune`` is 0-based (default: the start song).
-    """
+def _emu_player(cls, data: bytes, subtune: "int | None"):
     # pylint: disable=import-outside-toplevel
-    from pysidtracker import EmuPlayer, SidImage
+    from pysidtracker import SidImage
     from pysidtracker import registers as reg
     from pysidtracker.cadence import playroutine_cadence
 
@@ -244,7 +240,7 @@ def replay_player(data: bytes, *, subtune: "int | None" = None):
     init = header.init_address or header.real_load_address
     if subtune is None:
         subtune = (header.start_song or 1) - 1
-    return EmuPlayer(
+    return cls(
         image.image,
         image.load,
         init,
@@ -254,6 +250,62 @@ def replay_player(data: bytes, *, subtune: "int | None" = None):
         sid_model=reg.sid_model_for_flags(header.flags),
         cycles_per_frame=playroutine_cadence(image, subtune=subtune).cycles_per_call,
     )
+
+
+def replay_player(data: bytes, *, subtune: "int | None" = None):
+    """The replay ``data`` on the CPU alone: an :class:`~pysidtracker.EmuPlayer`, which
+    misses an interrupt that arrives while the previous play call still runs;
+    ``subtune`` is 0-based (default: the start song).
+    """
+    # pylint: disable=import-outside-toplevel
+    from pysidtracker import EmuPlayer
+
+    return _emu_player(EmuPlayer, data, subtune)
+
+
+def every_call_player(data: bytes, *, subtune: "int | None" = None):
+    """The replay ``data`` on the CPU alone, with every play call run: the interrupt the
+    real one misses is delivered, as the playspec-backed player delivers it."""
+    # pylint: disable=import-outside-toplevel
+    from pysidtracker import EmuPlayer
+    from pysidtracker.emu import run_to_rts
+
+    class EveryCall(EmuPlayer):
+        """An ``EmuPlayer`` that never drops a play call."""
+
+        def _frame(self):
+            if self._period:
+                self._mpu.processorCycles = max(self._mpu.processorCycles, self._due)
+                self._due += self._period
+            run_to_rts(self._mpu, self._obs, self._play_addr, 0, self._max_cycles)
+
+    return _emu_player(EveryCall, data, subtune)
+
+
+def aligned_modulo_missed_irqs(real, ours, *, max_lead: int = 4):
+    """The number of frames ``real`` dropped, if ``ours`` is ``real`` with those calls
+    played, else ``None``.
+
+    A dropped frame repeats the one before it; ``ours`` plays that call, so the rest of
+    ``real`` is ``ours`` one frame later for each drop. ``ours`` may lead ``real`` by up to
+    ``max_lead`` silent frames and run longer.
+    """
+    if not ours:
+        return None
+    for lead in range(max_lead + 1):
+        if lead and (lead > len(ours) or ours[lead - 1] != ours[0]):
+            break
+        drops, i, j = 0, 0, lead
+        while i < len(real) and j < len(ours):
+            if real[i] == ours[j]:
+                i, j = i + 1, j + 1
+            elif i and real[i] == real[i - 1]:
+                i, drops = i + 1, drops + 1
+            else:
+                break
+        if i == len(real):
+            return drops
+    return None
 
 
 def assert_same_every_call(plain, other, frames: int) -> None:

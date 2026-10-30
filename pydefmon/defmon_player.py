@@ -32,10 +32,6 @@ from pydefmon import _sid_format
 from pydefmon._spec_layout import defmon_binding, play_entries, player_base, spec_text
 from pydefmon.defmon import DefmonError, DefmonSong
 
-#: Play calls closer together than this can overrun their period; the spec costs no
-#: cycles, so it cannot tell when the replay's own code is late and drops a call.
-MIN_SPEC_PERIOD = 4000
-
 PlayerSource = Union[bytes, bytearray, str, Path, SidImage, DefmonSong]
 
 
@@ -122,6 +118,11 @@ class DefmonPlayer(SpecPlayer):
     :attr:`spec_backed`); a replay the spec does not describe runs its own 6502
     code instead, as :class:`~pysidtracker.EmuPlayer` does.
 
+    Every play call runs. The spec costs no cycles, so a call that the replay's own
+    code would have overrun into the next interrupt, which is then missed, does not
+    miss it: the grid has the call the replay dropped, and the song runs one call ahead
+    of it from there (:func:`tests._support.aligned_modulo_missed_irqs`).
+
     With ``validate`` the sidTAB rows the spec reads are parsed against the
     ``row`` rule of ``streams.lark``; ``validator.failures()`` lists those that
     are malformed.
@@ -186,8 +187,6 @@ class DefmonPlayer(SpecPlayer):
                 if not entries:
                     raise
                 self.entry = min(entries)
-            if self._period and self._period < MIN_SPEC_PERIOD:
-                raise SidParseError("play calls too close for the spec")
             self._instance(self.entry)
         except (SidParseError, SpecError, ValueError, LookupError):
             self._mem[:] = memory

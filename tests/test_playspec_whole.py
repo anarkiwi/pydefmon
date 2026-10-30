@@ -12,7 +12,12 @@ from pysidtracker.testing import TuneFetchError, resolve_tune
 
 from pydefmon import DefmonPlayer
 
-from tests._support import assert_same_every_call, replay_player
+from tests._support import (
+    aligned_modulo_missed_irqs,
+    assert_same_every_call,
+    every_call_player,
+    replay_player,
+)
 from tests.test_oracle_hvsc import SUBTUNES, TUNES
 
 # Replays that reach the player through their own wrapper, the reduced entry at the
@@ -25,6 +30,7 @@ WRAPPED = (
     "MUSICIANS/G/Goto80/Skan0r.sid",
     "MUSICIANS/G/Goto80/Svenska_Narkotika_3.sid",
     "MUSICIANS/N/NecroPolo/Anticitizen_64.sid",
+    "MUSICIANS/F/F7sus4/Triangle_My_Amelie.sid",
 )
 
 SONGS = [(rel, None) for rel in (*TUNES.values(), *WRAPPED)] + [
@@ -41,9 +47,21 @@ def test_whole_spec_equals_the_replay_every_call_of_the_whole_song(relpath, song
     subtune = None if song is None else song - 1
     player = DefmonPlayer(data, subtune=subtune)
     assert player.spec_backed
-    assert_same_every_call(
-        replay_player(data, subtune=subtune), player, song_frames(data, song)
-    )
+    frames = song_frames(data, song)
+    assert_same_every_call(every_call_player(data, subtune=subtune), player, frames)
+
+
+@pytest.mark.parametrize("relpath, song", SONGS)
+def test_the_replay_differs_only_by_the_calls_it_misses(relpath, song):
+    path = resolve_tune(relpath)
+    if path is None:
+        pytest.skip(f"tune {relpath} unavailable (offline, not cached)")
+    data = path.read_bytes()
+    subtune = None if song is None else song - 1
+    frames = song_frames(data, song)
+    real = replay_player(data, subtune=subtune).render_grid(frames)
+    ours = DefmonPlayer(data, subtune=subtune).render_grid(frames + 8)
+    assert aligned_modulo_missed_irqs(real, ours) is not None
 
 
 @pytest.mark.oracle

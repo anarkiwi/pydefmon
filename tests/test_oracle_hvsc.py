@@ -26,6 +26,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import oracle_hvsc  # noqa: E402  (after sys.path tweak)
 
+from tests._support import aligned_modulo_missed_irqs  # noqa: E402
+
 # HVSC defMON ``.sid`` replays verified byte-exact against the deterministic
 # oracle. Covers both runtime replay variations pydefmon supports plus a spread
 # of authors:
@@ -82,3 +84,22 @@ def test_subtune_matches_oracle(key):
     expected = oracle_grid(path, seconds=nframes // 50 + 2, frames=nframes, song=song)
     rendered = oracle_hvsc.render(path.read_bytes(), song, len(expected))[0].tolist()
     assert aligned_match(expected, rendered), f"{key}: render differs from oracle"
+
+
+# The play routine is a fast CIA interrupt handler that outruns its period now and then;
+# the oracle misses that interrupt, and ``DefmonPlayer`` plays the call.
+MISSED_IRQ_TUNES = {"f7sus4_triangle": "MUSICIANS/F/F7sus4/Triangle_My_Amelie.sid"}
+
+
+@pytest.mark.oracle
+@pytest.mark.parametrize("key", list(MISSED_IRQ_TUNES))
+def test_render_matches_oracle_but_for_missed_interrupts(key):
+    path = resolve_tune(MISSED_IRQ_TUNES[key])
+    if path is None:
+        raise TuneFetchError(f"tune {key} unavailable (offline, not cached)")
+    nframes = song_frames(path, None)
+    expected = oracle_grid(path, seconds=nframes // 50 + 2, frames=nframes)
+    rendered = oracle_hvsc.render(path.read_bytes(), 1, len(expected) + 8)[0].tolist()
+    assert (
+        aligned_modulo_missed_irqs(expected, rendered) is not None
+    ), f"{key}: render differs from oracle by more than missed interrupts"

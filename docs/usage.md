@@ -28,16 +28,18 @@ run on a decrunched editor image — then play the PSID (or use
 `raw=True` for the packed `.prg`).
 
 ```python
+from pysidtracker import song_frames
 from pydefmon import DefmonPlayer, DefmonSong
 
 player = DefmonPlayer("tune.sid")
-for _ in range(600):
+for _ in range(song_frames("tune.sid")):
     writes = player.play_frame()           # (reg, value) list; reg is a 0..24 offset
     for reg, value in writes:
         ...
 
 # Or a whole grid at once (nframes x 25 registers, forward-filled).
-grid = DefmonPlayer("tune.sid").render_grid(250)
+from pysidtracker import song_frames
+grid = DefmonPlayer("tune.sid").render_grid(song_frames("tune.sid"))
 
 # A .prg worktune, once packed with a user-supplied decrunched editor image.
 song = DefmonSong.from_file("tune.prg")
@@ -131,11 +133,20 @@ Existing cases are kept; add `--prune` to drop those that now pass. `rank` write
   FV / CP / ACID` high half) plus its companion `jp` and `dl` bytes.
 - [`SidcallFrame`](../pydefmon/defmon.py) — one frame of a cascade walk via
   `DefmonSong.sidcall_frames(start_row)`.
-- [`DefmonPlayer`](../pydefmon/defmon_player.py) — a `pysidtracker.EmuPlayer`
-  that runs a `.sid` tune's own relocatable replay on a jennings 6502 (with the NMOS
-  illegal opcodes defMON uses) and samples the 25 SID registers per frame.
+- [`DefmonPlayer`](../pydefmon/defmon_player.py) — a `pysidtracker.SpecPlayer`
+  that runs a `.sid` tune's replay as the playspec below (else its own relocatable
+  replay on a jennings 6502, with the NMOS illegal opcodes defMON uses) and
+  samples the 25 SID registers per frame.
   `render_grid(nframes)` and `play_frame()` come from the shared base; byte-exact
   against the `sidtrace` oracle.
+- [`pydefmon/specs/`](../pydefmon/specs) — the replay as a `pysidtracker`
+  playspec: `defmon.play` composes the per-block fragments (`defmon_band`,
+  `_walker`, `_reader`, `_cascade`, `_sidrow`, `_pitch`, `_pwsweep`, `_acid`;
+  `_nmi` is the unverified clock/stereo part). `pydefmon._spec_layout.defmon_binding`
+  binds it to a tune's relocated replay by signature. `DefmonPlayer` runs it
+  (`spec_backed`), and `tests/test_playspec_whole.py` holds it to the replay's
+  6502 on every play call of each oracle song: registers and all memory outside
+  the stack page.
 - `register_writes_from_player` / `read_reglog` / `write_reglog` / `RegWrite` —
   the shared `py*` register-log surface.
 - `render_player_wav` / `render_player_samples` — the shared `py*` WAV/sample

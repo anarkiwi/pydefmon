@@ -1,18 +1,21 @@
-// defMON sidTAB row interpreter: the bitmap-selected column values of one row,
-// read through the pointer in zero page, applied to one voice's record (VOICE
-// bytes per voice). Low bitmap bits 6, 7, 5..1 select WGh, WGl, AD, SR, TR, AF, PW, in that order; high
+// defMON sidTAB row interpreter: the bitmap-selected column values of one row, read
+// through the pointer whose low byte arrives in the accumulator and whose high byte is
+// in zero page, applied to the voice record X selects (VOICE bytes per voice). Low
+// bitmap bits 6, 7, 5..1 select WGh, WGl, AD, SR, TR, AF, PW, in that order; high
 // bitmap bits 7..3 select PS, RE, FV, CP, ACID. TR is absolute with bit 7 set, else
 // relative to the voice's note base; PW keeps its low nibble in the high register.
-// RE with $00 clears the voice's routing bit, with bit 3 set keeps the old low
-// nibble and sets the bit, else stores the byte. ACID with bit 7 clear resets the
-// accumulator, else sets the step and, from bit 6, ADC or SBC for both bytes.
+// RE with $00 clears the voice's routing bit, with bit 3 set keeps the old low nibble
+// and sets the bit, else stores the byte. ACID with bit 7 clear resets the
+// accumulator, else sets the step and, from bit 6, ADC or SBC for both bytes. The
+// shifted bitmap is left in a zero-page scratch byte.
 spec defmon_sidrow;
-layout { voice: byte; ptr_lo, ptr_hi, wgh, wgl, ad, sr, note, note_base, af, pw_lo, pw_hi,
-         ps, vbit, vmask, res, fv, cp, acc_lo, acc_hi, step_lo, step_hi, op_lo, op_hi: addr; }
-const VOICE = 0x31;
+layout { ptr_lo, ptr_hi, wgh, wgl, ad, sr, note, note_base, af, pw_lo, pw_hi,
+         ps, vbit, vmask, res, fv, cp, acc_lo, acc_hi, step_lo, step_hi, op_lo, op_hi,
+         scratch: addr; }
 const ADC_IMM = 0x69;
 const SBC_IMM = 0xE9;
 cell ptr: u16 @ (L.ptr_lo, L.ptr_hi);
+cell scratch: u8 @ L.scratch scratch;
 cell res: u8 @ L.res;
 cell fv: u8 @ L.fv;
 cell cp: u8 @ L.cp;
@@ -23,44 +26,41 @@ cell step_hi: u8 @ L.step_hi operand;
 cell op_lo: u8 @ L.op_lo operand;
 cell op_hi: u8 @ L.op_hi operand;
 
-machine row[x in 0..3] {
-  cell wgh: u8 @ L.wgh + x * VOICE;
-  cell wgl: u8 @ L.wgl + x * VOICE;
-  cell ad: u8 @ L.ad + x * VOICE;
-  cell sr: u8 @ L.sr + x * VOICE;
-  cell note: u8 @ L.note + x * VOICE;
-  cell note_base: u8 @ L.note_base + x * VOICE;
-  cell af: u8 @ L.af + x * VOICE;
-  cell pw_lo: u8 @ L.pw_lo + x * VOICE;
-  cell pw_hi: u8 @ L.pw_hi + x * VOICE;
-  cell ps: u8 @ L.ps + x * VOICE;
-  cell vbit: u8 @ L.vbit + x * VOICE ro;
-  cell vmask: u8 @ L.vmask + x * VOICE ro;
+machine row {
   step {
+    let v = u16(cpu.x);
+    mem[L.ptr_lo] := cpu.a;
     stream r = ptr @ 0;
     let low = next r;
-    if low & 0x40 != 0 { wgh := next r; }
-    if low & 0x80 != 0 { wgl := next r; }
-    if low & 0x20 != 0 { ad := next r; }
-    if low & 0x10 != 0 { sr := next r; }
-    if low & 0x08 != 0 {
-      let t = next r;
-      note := ite(neg(t), t & 0x7F, (t + note_base) & 0x7F);
-    }
-    if low & 0x04 != 0 { af := next r; }
-    if low & 0x02 != 0 {
-      let w = next r;
-      pw_hi := w;
-      pw_lo := w & 0xF0;
+    if low != 0 {
+      scratch := low << 1;
+      if low & 0x40 != 0 { mem[L.wgh + v] := next r; }
+      if low & 0x80 != 0 { mem[L.wgl + v] := next r; }
+      if low & 0x20 != 0 { mem[L.ad + v] := next r; }
+      if low & 0x10 != 0 { mem[L.sr + v] := next r; }
+      if low & 0x08 != 0 {
+        let t = next r;
+        mem[L.note + v] := ite(neg(t), t & 0x7F, (t + mem[L.note_base + v]) & 0x7F);
+      }
+      if low & 0x04 != 0 { mem[L.af + v] := next r; }
+      if low & 0x02 != 0 {
+        let w = next r;
+        mem[L.pw_hi + v] := w;
+        mem[L.pw_lo + v] := w & 0xF0;
+      }
     }
     let high = next r;
-    if high & 0x80 != 0 { ps := next r; }
+    if high == 0 {
+      return;
+    }
+    scratch := high << 1;
+    if high & 0x80 != 0 { mem[L.ps + v] := next r; }
     if high & 0x40 != 0 {
       let b = next r;
       if b == 0 {
-        res := res & vmask;
+        res := res & mem[L.vmask + v];
       } elif b & 0x08 != 0 {
-        res := (res & 0x0F) | b | vbit;
+        res := (res & 0x0F) | b | mem[L.vbit + v];
       } else {
         res := b;
       }
@@ -91,5 +91,5 @@ machine row[x in 0..3] {
 }
 
 schedule {
-  row[L.voice];
+  row;
 }

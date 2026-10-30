@@ -7,6 +7,8 @@ fixed offsets from the player base (the signature address less
 
 from __future__ import annotations
 
+from pysidtracker import CodePattern, find_code_first
+
 from pydefmon._sid_format import _SIGNATURE_FROM_PLAYER_BASE, find_signature
 
 SID_BASE = 0xD400
@@ -20,6 +22,7 @@ ACID_OFFSETS = {
     "opcode": 0xBF,
     "extra": 0xCA,
     "floor": 0xCE,
+    "shift": 0xD4,
 }
 
 #: The ACID block: its first instruction and the one after its ``STA $D416``.
@@ -29,6 +32,22 @@ ACID_BLOCK = (0xB5, 0xD8)
 def player_base(mem, start: int = 0, end: int = 0x10000) -> int:
     """The address of the replay player in ``mem``, from its signature."""
     return find_signature(mem, start, end) - _SIGNATURE_FROM_PLAYER_BASE
+
+
+def play_entry(mem, base: int) -> int:
+    """The address of the player's play entry: the ``JMP`` to its SID write band.
+
+    A tune's own play address may wrap it, and its distance from ``base`` varies.
+
+    Raises:
+        ValueError: no such ``JMP`` is next to the player's start.
+    """
+    band = base + BAND_BLOCK[0]
+    jump = bytes((0x4C, band & 0xFF, band >> 8))
+    for at in range(base - 3, base + 0x10):
+        if bytes(mem[at : at + 3]) == jump:
+            return at
+    raise ValueError(f"no play entry jumps to the band at ${band:04x}")
 
 
 def acid_binding(base: int) -> dict:
@@ -247,4 +266,161 @@ def band_binding(base: int) -> dict:
     """The ``defmon_band.play`` layout of the player at ``base``."""
     binding = {name: base + off for name, off in BAND_OFFSETS.items()}
     binding["sid"] = SID_BASE
+    return binding
+
+
+#: The cutoff block's start, its end store, the reader's first instructions, and the row
+#: interpreter's: the anchors from which the blocks whose size varies with the build are found.
+_CUTOFF_START = 0xB5
+_CUTOFF_STORE = CodePattern("8D 16 D4")
+_UNCOUNTED_JUMPS = CodePattern("BE ?? ?? 10 ?? B9 ?? ?? A8 BE")
+_READER_START = CodePattern("A2 00 A0 ?? 30 ?? CE")
+_ROW_START = CodePattern("85 FB A0 00 B1 FB")
+_ROW_TR = CodePattern("18 7D ?? ??")
+_ROW_CP = CodePattern("8D ?? ?? 8A 29 10")
+_BAND_CONTROL = 0x3C
+OR_OPCODE = 0x09
+
+#: The cutoff block's length from its start to the end of its ``STA $D416``, by shape.
+_CUTOFF_WITH_SHIFT = 0x23
+_CUTOFF_WITH_FLOOR = 0x22
+READER_SIZE = 0x88
+CASCADE_SIZE = 6 * 0x31
+PITCH_AFTER_CASCADE = 0x2
+
+
+def _word(mem, at: int) -> int:
+    return mem[at] | mem[at + 1] << 8
+
+
+def _find(mem, pattern: CodePattern, start: int, end: int) -> int:
+    """The address of the first ``pattern`` in ``mem`` from ``start`` to ``end``."""
+    found = find_code_first(bytes(mem), pattern, start=start, end=end)
+    if found is None:
+        raise ValueError(f"no code like {pattern} between ${start:04x} and ${end:04x}")
+    return found.addr
+
+
+def _operands(mem, opcode: int, start: int, end: int) -> list:
+    """The distinct absolute operands of the ``opcode`` instructions from ``start`` to
+    ``end``, in order."""
+    found: list = []
+    for at in range(start, end - 2):
+        if mem[at] == opcode and _word(mem, at + 1) not in found:
+            found.append(_word(mem, at + 1))
+    return found
+
+
+def defmon_binding(mem, base: int) -> dict:
+    """The ``defmon.play`` layout of the player at ``base`` in ``mem``.
+
+    The blocks whose length varies with the build (the cutoff slide, the arranger walker)
+    are found from their code; table addresses are read from the operands that use them.
+
+    Raises:
+        ValueError: a block is not where the player's code puts it.
+    """
+    cutoff = base + _CUTOFF_START
+    store = _find(mem, _CUTOFF_STORE, cutoff, cutoff + 0x30)
+    walker = store + 3
+    length = walker - cutoff
+    reader = _find(mem, _READER_START, walker, walker + 0x100)
+    cascade = reader + 3 * READER_SIZE
+    pitch = cascade + CASCADE_SIZE + PITCH_AFTER_CASCADE
+    row = _find(mem, _ROW_START, base, base + 0x900)
+    tr = _find(mem, _ROW_TR, row, row + 0x100)
+    cp = _find(mem, _ROW_CP, row, row + 0x100)
+    uncounted = (
+        find_code_first(bytes(mem), _UNCOUNTED_JUMPS, start=walker, end=reader)
+        is not None
+    )
+    pages = _operands(mem, 0xBE, walker, reader)
+    patterns = _operands(mem, 0xBD, walker, reader)
+    binding = {
+        # the voice records and the band
+        "pw_lo": base + 0x23,
+        "pw_hi": base + 0x25,
+        "freq_lo": base + 0x2D,
+        "freq_hi": base + 0x2F,
+        "sr": base + 0x37,
+        "ad": base + 0x39,
+        "wgh": base + 0x3B,
+        "wgl": base + 0x3D,
+        "slide_lo": base + 0x19,
+        "slide_hi": base + 0x1A,
+        "mode": base + 0x1B,
+        "depth": base + 0x1E,
+        "detune": base + 0x1F,
+        "vbit": base + 0x20,
+        "vmask": base + 0x21,
+        "res": base + 0xAA,
+        "fv": base + 0xAF,
+        # the cutoff slide
+        "cut_lo": cutoff + 1,
+        "op_lo": cutoff + 3,
+        "cut_step_lo": cutoff + 4,
+        "cut_hi": cutoff + 9,
+        "op_hi": cutoff + 0xA,
+        "cut_step_hi": cutoff + 0xB,
+        "extra": cutoff + (0x15 if length >= _CUTOFF_WITH_FLOOR else 0x14),
+        "floor": cutoff + 0x19,
+        "shift": cutoff + 0x1F,
+        # the arranger walker
+        "trigger": walker + 1,
+        "cursor": walker + 0x13,
+        "owner": _word(mem, walker + 0x1F) if not uncounted else walker,
+        "count": _word(mem, walker + 0x27) if not uncounted else walker,
+        "v1": pages[0],
+        "v2": pages[1],
+        "v3": pages[2],
+        "pat_lo": patterns[0],
+        "pat_hi": patterns[1],
+        # the pattern readers
+        "counter": reader + 3,
+        "copy1_lo": reader + 0x24,
+        "copy1_hi": reader + 0x25,
+        "gate_a": reader + 0x3B,
+        "ptr_lo": reader + 0x3F,
+        "ptr_hi": reader + 0x40,
+        "gate_b": reader + 0x49,
+        "copy2_lo": reader + 0x4D,
+        "copy2_hi": reader + 0x4E,
+        "gate_n": reader + 0x57,
+        "copy3_lo": reader + 0x5B,
+        "copy3_hi": reader + 0x5C,
+        "flag": reader + 0x6E,
+        # the cascade
+        "blk_counter": cascade + 1,
+        "blk_rowidx": cascade + 0x10,
+        "count_a": cascade + 1,
+        "row_a": cascade + 0x10,
+        "count_b": cascade + 1 + 3 * 0x31,
+        "row_b": cascade + 0x10 + 3 * 0x31,
+        "note_base": cascade + 0xE,
+        "note": cascade + 0xA0,
+        "rows_hi": _word(mem, cascade + 0x12),
+        "dl": _word(mem, cascade + 0x20),
+        "rows_lo": _word(mem, cascade + 0x26),
+        # the pitch
+        "rate_lo": _word(mem, pitch + 0x21),
+        "rate_hi": _word(mem, pitch + 0x2B),
+        "pitch_lo": _word(mem, pitch + 0x50),
+        "pitch_hi": _word(mem, pitch + 0x5A),
+        "step_lo": pitch + 0x82,
+        "step_hi": pitch + 0x8A,
+        # the row interpreter
+        "cp": _word(mem, cp + 1),
+        "rowptr_lo": ROW_POINTER[0],
+        "rowptr_hi": ROW_POINTER[1],
+        "scratch": mem[row + 0xA],
+        "sid": SID_BASE,
+        # the build
+        "uncounted": int(uncounted),
+        "plain_tr": int(
+            bytes(mem[tr + 4 : tr + 6]) != b"\x29\x7f" and mem[tr + 4] == 0x9D
+        ),
+        "or_ctrl": int(mem[base + _BAND_CONTROL] == OR_OPCODE),
+        "floored": int(length >= _CUTOFF_WITH_FLOOR),
+        "shifts": int(length >= _CUTOFF_WITH_SHIFT),
+    }
     return binding

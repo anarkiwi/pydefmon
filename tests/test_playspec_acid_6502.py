@@ -28,6 +28,7 @@ TUNES = (
     "MUSICIANS/D/Dex-D/Short_Dream.sid",
 )
 OPCODE_ADC, OPCODE_SBC, CLC = 0x69, 0xE9, 0x18
+NOP, ASL_A = 0xEA, 0x0A
 LO_CLC, LO_OP, HI_OP = 0xB7, 0xB8, 0xBF
 CPU_SP = 0xF0
 
@@ -56,6 +57,7 @@ def test_acid_spec_equals_the_6502_block(relpath):
         for name in ("acc_lo", "step_lo", "acc_hi", "step_hi", "extra"):
             bus[binding[name]] = rng.randrange(256)
         bus[binding["floor"]] = rng.choice((0, 2, 5, 0x20))
+        bus[binding["shift"]] = rng.choice((NOP, ASL_A))
         bus[base + LO_CLC] = CLC
         opcode = rng.choice((OPCODE_ADC, OPCODE_SBC))
         bus[base + LO_OP] = bus[base + HI_OP] = opcode

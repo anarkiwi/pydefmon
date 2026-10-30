@@ -136,6 +136,21 @@ class TestColumns(unittest.TestCase):
                 pulse = [(f[_PW_HI] & 0x0F) << 8 | f[_PW_LO] for f in grid[3:]]
                 self.assertEqual({b - a for a, b in zip(pulse, pulse[1:])}, {step})
 
+    def test_sub_path_borrows_the_carry_the_pitch_leaves(self):
+        steps = {}
+        for note in (0x31, 0x77):
+            grid = editor_grid(
+                f"sid 1\n $00: $01 $01 $01\n{_SILENT}pattern $01\n"
+                f" 0: n ${note:02x} a $01\n 200: end 0\n"
+                "row $01 PW $88 PS $04 stop\n",
+                10,
+            )
+            for voice, (lo, hi) in enumerate(((_PW_LO, _PW_HI), (9, 10), (16, 17))):
+                pulse = [(f[hi] & 0x0F) << 8 | f[lo] for f in grid[3:]]
+                steps[note, voice] = {b - a for a, b in zip(pulse, pulse[1:])}
+        self.assertEqual([steps[0x31, voice] for voice in range(3)], [{-5}, {-5}, {-5}])
+        self.assertEqual([steps[0x77, voice] for voice in range(3)], [{-5}, {-4}, {-4}])
+
     def test_every_voice_sweeps_the_same(self):
         for depth, step in ((0x84, 0x04), (0x04, -0x05)):
             with self.subTest(depth=depth):

@@ -10,6 +10,7 @@ from tests._support import editor_grid
 _FREQ = (0, 7, 14)  # freq lo per voice; hi is the next register
 _CTRL = (4, 11, 18)
 _PW_LO, _PW_HI, _MODE_VOL = 2, 3, 24
+_CUTOFF_HI, _RES_ROUTE = 22, 23
 _N = 0x31
 _SILENT = "pattern $00\n"
 
@@ -150,6 +151,42 @@ class TestColumns(unittest.TestCase):
             notes,
             [_pitch(_N + 2), _pitch(0x05), _pitch((_N + 0x7F) & 0x7F), _pitch(_N)],
         )
+
+
+def _cutoff(rows: str, frames: int = 14) -> list[int]:
+    return [f[_CUTOFF_HI] for f in _one_voice(rows, frames=frames)][2:]
+
+
+class TestFilter(unittest.TestCase):
+    def test_re_is_written_to_resonance_routing_unchanged(self):
+        for value in (0x00, 0x01, 0x80, 0xF1, 0xFF):
+            with self.subTest(value=value):
+                frame = _one_voice(f"row $01 RE ${value:02x} stop\n", frames=6)[-1]
+                self.assertEqual(frame[_RES_ROUTE], value)
+
+    def test_acid_high_bit7_clear_resets_the_cutoff_absolutely(self):
+        self.assertEqual(set(_cutoff("row $01 ACID $0510 stop\n")), {5})
+
+    def test_cp_adds_to_the_cutoff_each_frame(self):
+        self.assertEqual(set(_cutoff("row $01 CP $03 ACID $0510 stop\n")), {8})
+
+    def test_acid_adc_slide_steps_the_cutoff_high_byte(self):
+        reset = "row $01 ACID $0510 hold 1 -> $02\n"
+        self.assertEqual(
+            _cutoff(reset + "row $02 ACID $8100 stop\n")[:5], [5, 6, 7, 8, 9]
+        )
+        half = _cutoff(reset + "row $02 ACID $8080 stop\n")[:6]
+        self.assertEqual(half, [5, 5, 6, 6, 7, 7])
+
+    def test_acid_sbc_slide_subtracts_one_more_than_the_step(self):
+        cutoff = _cutoff(
+            "row $01 ACID $2000 hold 1 -> $02\nrow $02 ACID $c000 stop\n", 280
+        )
+        self.assertEqual((cutoff[3], cutoff[-1]), (32, 31))
+
+    def test_cutoff_at_bit7_or_below_two_reloads_the_floor(self):
+        cutoff = _cutoff("row $01 ACID $7000 hold 1 -> $02\nrow $02 ACID $8800 stop\n")
+        self.assertEqual(cutoff[:5], [112, 120, 2, 10, 18])
 
 
 class TestArranger(unittest.TestCase):

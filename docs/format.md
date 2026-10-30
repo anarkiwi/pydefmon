@@ -291,8 +291,10 @@ number that voice V1/V2/V3 plays on this step. Encoding:
   (the `$FF` form defMON writes). `$1C00,Y` becomes the target song step;
   `$1D00,Y` is the repeat count: `0` jumps forever, `n` jumps `n` times so
   the rows from the target play `n + 1` times, then the walker falls through.
-  One loop counter is shared by all jump rows. The row a jump lands on is
-  played as patterns without checking it for a jump, so jumps do not chain.
+  One loop counter is shared by all jump rows, and it belongs to the row that
+  last loaded it: a different counted jump row taking it restarts the count, so
+  counted loops do not nest. The row a jump lands on is played as patterns
+  without checking it for a jump, so jumps do not chain.
 
 Edit via `DefmonSong.set_step(y, v1=..., v2=..., v3=...)` for pattern-playing
 rows and `DefmonSong.set_jump(y, target=..., count=...)` for jumps.

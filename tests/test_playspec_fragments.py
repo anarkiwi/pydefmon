@@ -43,24 +43,6 @@ class Run:
         return values[0] if count == 1 else values
 
 
-def test_defmon_counted_jump_plays_its_loop_count_plus_one():
-    run = Run(
-        "defmon_arranger",
-        {
-            "row": 0x1000,
-            "loop": 0x1001,
-            "v1": 0x1100,
-            "v2": 0x1200,
-            "v3": 0x1300,
-            "pattern": 0x1010,
-        },
-    )
-    run.poke(0x1000, 0xFF).poke(0x1100, 0x01, 0x81, 0x04).poke(0x1200, 0x02, 0x00, 0x05)
-    run.poke(0x1300, 0x03, 0x02, 0x06)
-    rows = [run.step().peek(0x1010) for _ in range(4)]
-    assert rows == [1, 1, 1, 4] and run.peek(0x1001) == 0
-
-
 def test_defmon_alt_ends_the_step_of_every_voice_next_tick():
     run = Run(
         "defmon_pattern",

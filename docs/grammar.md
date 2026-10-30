@@ -58,7 +58,8 @@ with counted jumps, V3 the count (`0` jumps forever; otherwise the first visit
 loads the count, later visits decrement it, and at zero the walker falls
 through). The row a jump lands on, and the row a counted jump falls through
 to, are loaded as patterns without that check. One loop counter is shared by
-all jump rows. Only rows reached from a start row appear.
+all jump rows and belongs to the row that last loaded it, so a different counted
+jump row restarts it. Only rows reached from a start row appear.
 
 **Patterns.** A step whose duration nibble is `d` lasts `d + 2` main ticks:
 the step is fetched when its voice's counter underflows and applied on the

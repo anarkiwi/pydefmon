@@ -9,6 +9,7 @@ tune whose table is standard) and to ``pysidtracker.notes.frequency`` outside it
 import pytest
 
 from pysidtracker import SidImage, song_frames
+from pysidtracker.formats import SidFormatError
 from pysidtracker import registers as reg
 from pysidtracker.notes import frequency
 from pysidtracker.playspec import compile_program, elaborate, parse
@@ -63,8 +64,12 @@ def _sid_model(data: bytes) -> str:
 @pytest.mark.parametrize("relpath", corpus_relpaths())
 def test_spec_player_plays_the_grid_of_defmon_player(relpath):
     data = _tune(relpath)
-    frames = song_frames(data)
     model = FMT.parser.parse(data)
+    if len(player_bases(SidImage.from_bytes(data).image)) > 1:
+        with pytest.raises(SidFormatError):
+            FMT.spec_player(model)
+        return
+    frames = song_frames(data)
     player = FMT.spec_player(model, sid_model=_sid_model(data))
     assert player.render_grid(frames) == DefmonPlayer(data).render_grid(frames)
 

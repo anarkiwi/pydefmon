@@ -33,7 +33,7 @@ values:
 
 `defmon_format().spec(model)` is a `pysidtracker.formats.SpecBinding` of the model's own
 replay image and subtune, with `spec_entries` and `spec_bind`. So
-`fmt.spec_player(model)` plays what `DefmonPlayer` plays; the SID model of the header is not
+A stereo (2SID) replay raises `SidFormatError`. `fmt.spec_player(model)` plays what `DefmonPlayer` plays; the SID model of the header is not
 carried, so pass `sid_model=` (and `cycles_per_frame=` for a tune whose play call overruns
 its period) as `DefmonPlayer` derives them.
 

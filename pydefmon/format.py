@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Iterator, Mapping, Sequence
 
 from pysidtracker import SidFormat, SidImage
-from pysidtracker.formats import SpecBinding
+from pysidtracker.formats import SidFormatError, SpecBinding
 
 from pydefmon import _sid_format
 from pydefmon._layout import (
@@ -30,7 +30,7 @@ from pydefmon._layout import (
 from pydefmon.defmon import DefmonSidParser, DefmonSong
 from pydefmon._variant import detect_variant
 from pydefmon.defmon_player import DefmonPlayer, replay_image
-from pydefmon.spec import spec, spec_bind, spec_entries
+from pydefmon.spec import player_bases, spec, spec_bind, spec_entries
 from pydefmon.tune import ARRANGERS, Tune, _page
 
 
@@ -91,8 +91,14 @@ def _streams(song: DefmonSong) -> Iterator[tuple]:
 
 
 def _spec(song: DefmonSong) -> SpecBinding:
-    """The playspec of the song's own replay: ``DefmonPlayer``'s, entered at its play address."""
+    """The playspec of the song's own single-SID replay.
+
+    Raises:
+        SidFormatError: the replay plays more than one copy of the player (2SID).
+    """
     image = replay_image(SidImage.from_bytes(song.image_bytes))
+    if len(player_bases(image.image)) > 1:
+        raise SidFormatError("a stereo (2SID) replay has no single-SID playspec")
     subtune = song.subtune
     if subtune is None:
         subtune = (image.header.start_song or 1) - 1

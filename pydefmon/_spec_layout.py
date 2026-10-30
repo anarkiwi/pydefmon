@@ -181,3 +181,44 @@ WALKER_BLOCK = (0xD8, 0x147)
 def walker_binding(base: int) -> dict:
     """The ``defmon_walker.play`` layout of the player at ``base``."""
     return {name: base + off for name, off in WALKER_OFFSETS.items()}
+
+
+#: ``defmon_reader.play`` layout: offsets from the player base of voice 0's reader
+#: operands; voice ``n`` is ``READER_STRIDE * n`` further on for the reader's own
+#: operands and ``VOICE_STRIDE * n`` for the records it writes.
+READER_OFFSETS = {
+    "trigger": 0xD9,
+    "counter": 0x14A,
+    "ptr_lo": 0x186,
+    "ptr_hi": 0x187,
+    "copy1_lo": 0x16B,
+    "copy1_hi": 0x16C,
+    "copy2_lo": 0x194,
+    "copy2_hi": 0x195,
+    "copy3_lo": 0x1A2,
+    "copy3_hi": 0x1A3,
+    "flag": 0x1B5,
+    "gate_a": 0x182,
+    "gate_b": 0x190,
+    "gate_n": 0x19E,
+    "row_a": 0x2EF,
+    "count_a": 0x2E0,
+    "row_b": 0x382,
+    "count_b": 0x373,
+    "note_base": 0x2ED,
+    "note": 0x37F,
+    "acc_lo": 0x19,
+    "acc_hi": 0x1A,
+    "mode": 0x1B,
+}
+
+#: Voice 0's reader: its first instruction; the next voice follows ``READER_STRIDE`` on.
+READER_START = 0x147
+READER_STRIDE = 0x88
+
+
+def reader_binding(base: int, voice: int) -> dict:
+    """The ``defmon_reader.play`` layout of the player at ``base``, for ``voice``."""
+    binding = {name: base + off for name, off in READER_OFFSETS.items()}
+    binding["voice"] = voice
+    return binding

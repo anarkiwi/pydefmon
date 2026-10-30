@@ -1,0 +1,86 @@
+// defMON pattern step reader of one voice, in two phases over the voice's own operands
+// (READER bytes of code per voice). A counter that is negative applies the pending
+// step; otherwise it counts down and, on underflow, fetches: the voice's pattern
+// pointer is copied into the operands of the three reads and the flag byte is read,
+// then kept in an operand, and shifted left 1, 2 and 3 into the operands that gate the
+// payload reads. Applying reads one payload byte per set gate from the pointer + 1: A
+// ($40) arms the first sidTAB layer at that row, B ($20) the second, N ($10) sets the
+// note and its base and clears the pitch slide. A flag without ALT then moves the
+// pointer past the bytes read and sets the counter to the low nibble; with ALT ($80)
+// the flag becomes the arranger trigger and the pointer stays.
+spec defmon_reader;
+layout { voice: byte; trigger, counter, ptr_lo, ptr_hi, copy1_lo, copy1_hi, copy2_lo,
+         copy2_hi, copy3_lo, copy3_hi, flag, gate_a, gate_b, gate_n, row_a, count_a, row_b,
+         count_b, note_base, note, acc_lo, acc_hi, mode: addr; }
+const READER = 0x88;
+const VOICE = 0x31;
+cell trigger: u8 @ L.trigger operand;
+
+machine voice[x in 0..3] {
+  cell counter: u8 @ L.counter + x * READER operand;
+  cell ptr: u16 @ (L.ptr_lo + x * READER, L.ptr_hi + x * READER);
+  cell copy1: u16 @ (L.copy1_lo + x * READER, L.copy1_hi + x * READER);
+  cell copy2: u16 @ (L.copy2_lo + x * READER, L.copy2_hi + x * READER);
+  cell copy3: u16 @ (L.copy3_lo + x * READER, L.copy3_hi + x * READER);
+  cell flag: u8 @ L.flag + x * READER operand;
+  cell gate_a: u8 @ L.gate_a + x * READER operand;
+  cell gate_b: u8 @ L.gate_b + x * READER operand;
+  cell gate_n: u8 @ L.gate_n + x * READER operand;
+  cell row_a: u8 @ L.row_a + x * VOICE operand;
+  cell count_a: u8 @ L.count_a + x * VOICE operand;
+  cell row_b: u8 @ L.row_b + x * VOICE operand;
+  cell count_b: u8 @ L.count_b + x * VOICE operand;
+  cell note_base: u8 @ L.note_base + x * VOICE operand;
+  cell note: u8 @ L.note + x * VOICE;
+  cell acc_lo: u8 @ L.acc_lo + x * VOICE;
+  cell acc_hi: u8 @ L.acc_hi + x * VOICE;
+  cell mode: u8 @ L.mode + x * VOICE;
+  step {
+    if !neg(counter) {
+      counter -= 1;
+      if !neg(counter) {
+        return;
+      }
+      copy1 := ptr;
+      copy2 := ptr;
+      copy3 := ptr;
+      let f = mem[ptr];
+      flag := f;
+      gate_a := f << 1;
+      gate_b := f << 2;
+      gate_n := f << 3;
+      return;
+    }
+    let y = 1;
+    if neg(gate_a) {
+      row_a := mem[ptr + u16(y)];
+      count_a := 0;
+      y += 1;
+    }
+    if neg(gate_b) {
+      row_b := mem[copy2 + u16(y)];
+      count_b := 0;
+      y += 1;
+    }
+    if neg(gate_n) {
+      let n = mem[copy3 + u16(y)];
+      note_base := n;
+      note := n;
+      acc_lo := 0;
+      acc_hi := 0;
+      mode := 0;
+      y += 1;
+    }
+    let fl = flag;
+    if neg(fl) {
+      trigger := fl;
+    } else {
+      ptr := ptr + u16(y);
+      counter := fl & 0x0F;
+    }
+  }
+}
+
+schedule {
+  voice[L.voice];
+}

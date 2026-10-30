@@ -6,7 +6,6 @@ same memory, and the whole 64 KiB, outside the stack page, must agree.
 """
 
 import random
-from pathlib import Path
 
 import pytest
 
@@ -17,13 +16,9 @@ from pysidtracker.playspec.pyexec import controls
 from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import WALKER_BLOCK, player_base, walker_binding
+from pydefmon._spec_layout import spec_text, WALKER_BLOCK, player_base, walker_binding
 
-SPEC = parse(
-    (
-        Path(__file__).resolve().parent.parent / "specs" / "defmon_walker.play"
-    ).read_text()
-)
+SPEC = parse(spec_text("defmon_walker"))
 TUNES = (
     "MUSICIANS/I/Ilkke/Glow_Worm.sid",
     "MUSICIANS/D/Demsky_Martin/Acid_Bassline.sid",

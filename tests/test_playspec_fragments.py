@@ -4,21 +4,19 @@ Expected bytes are derived by hand from the player's documented semantics
 (``docs/format.md``).
 """
 
-from pathlib import Path
-
 import pytest
 
 from pysidtracker.playspec import compile_program, elaborate, parse
 from pysidtracker.playspec.pyexec import controls
 
-SPECS = Path(__file__).resolve().parent.parent / "specs"
+from pydefmon._spec_layout import spec_text
 
 
 class Run:
     """A fragment bound to ``binding``, stepping a 64 KiB memory one call at a time."""
 
     def __init__(self, name, binding, **regs):
-        self.program = elaborate(parse((SPECS / f"{name}.play").read_text()), binding)
+        self.program = elaborate(parse(spec_text(name)), binding)
         self.frame = compile_program(self.program)
         self.state = controls(self.program)
         self.mem = bytearray(0x10000)

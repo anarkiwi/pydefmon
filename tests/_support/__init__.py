@@ -243,13 +243,9 @@ def spec_player(data: bytes, spec_name: str, binding, *, subtune: "int | None" =
     from pysidtracker.cadence import playroutine_cadence
     from pysidtracker.playspec import SpecPlayer, parse
 
-    from pydefmon._spec_layout import play_entry, player_base
+    from pydefmon._spec_layout import play_entry, player_base, spec_text
 
-    spec = parse(
-        (
-            Path(__file__).resolve().parents[2] / "specs" / f"{spec_name}.play"
-        ).read_text()
-    )
+    spec = parse(spec_text(spec_name))
     image = SidImage.from_bytes(data)
     header = image.header
     init = header.init_address or header.real_load_address

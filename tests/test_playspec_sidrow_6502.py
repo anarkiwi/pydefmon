@@ -6,7 +6,6 @@ of the same memory, and the whole 64 KiB, outside the stack page, must agree.
 """
 
 import random
-from pathlib import Path
 
 import pytest
 
@@ -18,19 +17,15 @@ from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
 from pydefmon._spec_layout import (
+    spec_text,
     ROW_POINTER,
     SIDROW_ENTRY,
-    SIDROW_OFFSETS,
     VOICE_STRIDE,
     player_base,
     sidrow_binding,
 )
 
-SPEC = parse(
-    (
-        Path(__file__).resolve().parent.parent / "specs" / "defmon_sidrow.play"
-    ).read_text()
-)
+SPEC = parse(spec_text("defmon_sidrow"))
 # Replays assembled at $1000: the interpreter's RE store jumps to an absolute
 # address that only matches there.
 TUNES = (

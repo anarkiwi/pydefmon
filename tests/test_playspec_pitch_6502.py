@@ -6,7 +6,6 @@ outside the stack page, must agree.
 """
 
 import random
-from pathlib import Path
 
 import pytest
 
@@ -17,11 +16,15 @@ from pysidtracker.playspec.pyexec import controls
 from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import PITCH_BLOCK, VOICE_STRIDE, pitch_binding, player_base
-
-SPEC = parse(
-    (Path(__file__).resolve().parent.parent / "specs" / "defmon_pitch.play").read_text()
+from pydefmon._spec_layout import (
+    spec_text,
+    PITCH_BLOCK,
+    VOICE_STRIDE,
+    pitch_binding,
+    player_base,
 )
+
+SPEC = parse(spec_text("defmon_pitch"))
 # Replays assembled at $1000: the constant-detune path reads and writes absolute
 # addresses that only match there.
 TUNES = (

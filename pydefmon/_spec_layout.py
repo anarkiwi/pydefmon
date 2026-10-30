@@ -97,3 +97,25 @@ def sidrow_binding(mem, base: int, voice: int) -> dict:
     binding["ptr_lo"], binding["ptr_hi"] = ROW_POINTER
     binding["voice"] = voice
     return binding
+
+
+#: ``defmon_cascade.play`` layout: offsets from the player base of block 0's counter
+#: and row-index operands, and of the row tables.
+CASCADE_OFFSETS = {
+    "counter": 0x2E0,
+    "rowidx": 0x2EF,
+    "rows_lo": 0x800,
+    "rows_hi": 0x900,
+    "dl": 0xE00,
+}
+
+#: The six cascade blocks, first instruction to the first of the sweep loop.
+CASCADE_BLOCKS = (0x2DF, 0x405)
+RTS = 0x60
+
+
+def cascade_binding(base: int) -> dict:
+    """The ``defmon_cascade.play`` layout of the player at ``base``."""
+    binding = {name: base + off for name, off in CASCADE_OFFSETS.items()}
+    binding["ptr_hi"] = ROW_POINTER[1]
+    return binding

@@ -422,7 +422,7 @@ the bitmap. Column meanings:
 | low    | 2   | `AF`   | Sets `slide_mode`: `$00` = none, `$01..$7F` = constant detune, `$80..$FF` = slide (bit 6 = down); see [Pitch slide](#pitch-slide) |
 | low    | 1   | `PW`   | Pulse width with the nibbles swapped: `PW $YX` gives the 12-bit width `$XY0` (`$D403 = X`, `$D402 = $Y0`) |
 | high   | 7   | `PS`   | Sets `ps_depth`: pulse-width sweep depth + direction (bit 7 = direction) |
-| high   | 6   | `RE`   | Sets `$D417` (resonance + voice routing) to the byte, unchanged |
+| high   | 6   | `RE`   | Updates `$D417` (resonance + voice routing) by the byte `b`, with `m` the voice's routing bit (`$01`, `$02`, `$04` for voices 1-3): `b = $00` clears `m`; `b & $08` sets it to `($D417 & $0F) \| b \| m`; any other `b` is stored as is |
 | high   | 5   | `FV`   | Sets `$D418` filter mode + volume (volume always emitted as `$0F`) |
 | high   | 4   | `CP`   | Sets the cutoff extra added to the `$D416` output each frame |
 | high   | 3   | `ACID` | 16-bit cutoff-slide command, stored little-endian (step byte first, then control: bit 7 = slide-vs-absolute, bit 6 = SBC vs ADC) |

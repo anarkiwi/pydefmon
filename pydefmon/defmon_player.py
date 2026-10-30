@@ -87,10 +87,8 @@ def _spec():
 
 
 def _entries(view):
-    try:
-        return {play_entry(view, player_base(view))}
-    except (ValueError, LookupError):
-        return set()
+    base = player_base(view)
+    return set() if base < 0 else {play_entry(view, base)}
 
 
 def _bind(view, entry):  # pylint: disable=unused-argument
@@ -162,7 +160,14 @@ class DefmonPlayer(SpecPlayer):
     def _init(self, subtune: int) -> None:
         memory = bytes(self._mem)
         try:
-            super()._init(subtune)
+            try:
+                super()._init(subtune)
+            except SidParseError:
+                # A wrapper that skips the player on its first call reaches no entry.
+                entries = self._entries()
+                if not entries:
+                    raise
+                self.entry = min(entries)
             self._instance(self.entry)
         except (SidParseError, SpecError, ValueError, LookupError):
             self._mem[:] = memory

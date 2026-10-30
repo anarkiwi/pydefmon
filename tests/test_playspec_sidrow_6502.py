@@ -6,7 +6,6 @@ of the same memory, and the whole 64 KiB, outside the stack page, must agree.
 """
 
 import random
-from pathlib import Path
 
 import pytest
 
@@ -21,7 +20,6 @@ from pydefmon._spec_layout import (
     spec_text,
     ROW_POINTER,
     SIDROW_ENTRY,
-    SIDROW_OFFSETS,
     VOICE_STRIDE,
     player_base,
     sidrow_binding,

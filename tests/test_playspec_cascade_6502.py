@@ -6,7 +6,6 @@ whole 64 KiB, outside the stack page, must agree.
 """
 
 import random
-from pathlib import Path
 
 import pytest
 
@@ -20,7 +19,6 @@ from pydefmon import DefmonPlayer
 from pydefmon._spec_layout import (
     spec_text,
     CASCADE_BLOCKS,
-    CASCADE_OFFSETS,
     RTS,
     SIDROW_ENTRY,
     cascade_binding,

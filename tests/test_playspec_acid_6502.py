@@ -6,7 +6,6 @@ and the accumulator must agree.
 """
 
 import random
-from pathlib import Path
 
 import pytest
 

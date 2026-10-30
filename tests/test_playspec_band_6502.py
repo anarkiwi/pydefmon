@@ -6,7 +6,6 @@ memory, and the whole 64 KiB, outside the stack page, must agree.
 """
 
 import random
-from pathlib import Path
 
 import pytest
 

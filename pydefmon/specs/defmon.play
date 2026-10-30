@@ -48,7 +48,7 @@ cell step_hi: u8 @ L.step_hi operand;
 
 proc sidrow(v: u16, lo: u8) {
   mem[L.rowptr_lo] := lo;
-  stream r = rowptr @ 0;
+  stream r = rowptr @ 0 grammar "pydefmon._layout:STREAMS:row";
   let low = next r;
   if low != 0 {
     scratch := low << 1;

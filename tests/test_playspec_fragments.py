@@ -80,34 +80,3 @@ def test_defmon_acid_self_modified_adc_sbc(opcode, acc, step, expected):
     )
     run.poke(0x1000, *acc, *step).poke(0x2000, opcode).poke(0x2011, 0x05)
     assert run.step().peek(0xD416) == expected
-
-
-@pytest.mark.parametrize("stereo", [0, 1])
-def test_defmon_main_tick_cadence_detune_and_stereo(stereo):
-    run = Run(
-        "defmon_nmi",
-        {
-            "nmis": 0x1000,
-            "per_tick": 0x1001,
-            "ticks": 0x1010,
-            "note": 0x1020,
-            "pitch_lo": 0x1100,
-            "pitch_hi": 0x1200,
-            "sid": 0xD400,
-            "sid2": 0xD420,
-            "stereo": stereo,
-        },
-    )
-    run.poke(0x1001, 2).poke(0x1105, 0xFF).poke(0x1205, 0x12).poke(
-        0x1020, 5, 5, 5, 5, 5, 5
-    )
-    run.step()
-    assert run.peek(0x1010) == 0
-    run.step()
-    assert run.peek(0x1010, 6) == [1, 1, 1] + [stereo] * 3
-    assert [run.peek(0xD400 + 7 * v, 2) for v in range(3)] == [
-        [0xFF, 0x12],
-        [0x00, 0x12],
-        [0x01, 0x12],
-    ]
-    assert run.peek(0xD427, 2) == ([0x00, 0x12] if stereo else [0, 0])

@@ -142,7 +142,8 @@ Existing cases are kept; add `--prune` to drop those that now pass. `rank` write
 - [`pydefmon/specs/`](../pydefmon/specs) — the replay as a `pysidtracker`
   playspec: `defmon.play` composes the per-block fragments (`defmon_band`,
   `_walker`, `_reader`, `_cascade`, `_sidrow`, `_pitch`, `_pwsweep`, `_acid`;
-  `_nmi` is the unverified clock/stereo part). `pydefmon._spec_layout.defmon_binding`
+  `_nmi` is the editor's NMI counter, checked against the editor's handler
+  but not part of `defmon.play`). `pydefmon._spec_layout.defmon_binding`
   binds it to a tune's relocated replay by signature. The routine is entered at the
   `JMP` to the band beside the player's start, at the band (called from the tune's
   own code), or at the player's start plus six, which runs the band and cutoff slide

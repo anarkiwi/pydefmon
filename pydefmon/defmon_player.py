@@ -122,12 +122,22 @@ class DefmonPlayer(SpecPlayer):
     :attr:`spec_backed`); a replay the spec does not describe runs its own 6502
     code instead, as :class:`~pysidtracker.EmuPlayer` does.
 
+    With ``validate`` the sidTAB rows the spec reads are parsed against the
+    ``row`` rule of ``streams.lark``; ``validator.failures()`` lists those that
+    are malformed.
+
     Raises :class:`~pydefmon.DefmonError` for a source with no init/play
     routine (e.g. a bare ``.prg`` editor workfile, which carries no player --
     read those with :class:`~pydefmon.DefmonSong`).
     """
 
-    def __init__(self, source: PlayerSource, *, subtune: "int | None" = None) -> None:
+    def __init__(
+        self,
+        source: PlayerSource,
+        *,
+        subtune: "int | None" = None,
+        validate: bool = False,
+    ) -> None:
         image = replay_image(_as_image(source))
         header = image.header
         init = header.init_address or header.real_load_address
@@ -143,6 +153,7 @@ class DefmonPlayer(SpecPlayer):
             subtune,
             bind=_bind,
             entries=_entries,
+            validate=validate,
             illegal_opcodes=True,
             sid_model=reg.sid_model_for_flags(header.flags),
             cycles_per_frame=playroutine_cadence(

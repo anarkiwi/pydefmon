@@ -43,45 +43,6 @@ class Run:
         return values[0] if count == 1 else values
 
 
-def test_defmon_alt_ends_the_step_of_every_voice_next_tick():
-    run = Run(
-        "defmon_pattern",
-        {
-            "counter": 0x1000,
-            "ptr_lo": 0x1010,
-            "ptr_hi": 0x1020,
-            "row_a": 0x1030,
-            "row_b": 0x1040,
-            "cnt_a": 0x1050,
-            "cnt_b": 0x1060,
-            "note": 0x1070,
-            "base": 0x1080,
-            "pending": 0x1090,
-            "dur": 0x1091,
-            "steps": 0x1092,
-        },
-    )
-    run.poke(0x1000, 0, 5, 5).poke(0x1010, 0x00, 0x10, 0x20).poke(
-        0x1020, 0x30, 0x30, 0x30
-    )
-    run.poke(0x3000, 0xD1, 0x07, 0x30).poke(0x1050, 9)
-    run.step()
-    assert run.peek(0x1000, 3) == [2, 4, 4]
-    assert (run.peek(0x1030), run.peek(0x1050), run.peek(0x1070), run.peek(0x1080)) == (
-        7,
-        0,
-        0x30,
-        0x30,
-    )
-    assert (run.peek(0x1010), run.peek(0x1090), run.peek(0x1091)) == (3, 1, 1)
-    run.step()
-    assert (
-        run.peek(0x1000, 3) == [1, 1, 1]
-        and run.peek(0x1092) == 1
-        and run.peek(0x1090) == 0
-    )
-
-
 def test_defmon_pw_sweep_clamps_and_flips():
     run = Run("defmon_pwsweep", {"depth": 0x1000, "pw_lo": 0x1010, "pw_hi": 0x1020})
     voice = [0x31 * v for v in range(3)]

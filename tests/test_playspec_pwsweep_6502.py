@@ -16,7 +16,7 @@ from pysidtracker.playspec.pyexec import controls
 from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import spec_text, PWSWEEP_BLOCK, player_base, pwsweep_binding
+from pydefmon.spec import spec_text, PWSWEEP_BLOCK, player_base, pwsweep_binding
 
 SPEC = parse(spec_text("defmon_pwsweep"))
 TUNES = (

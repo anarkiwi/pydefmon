@@ -17,7 +17,7 @@ from pysidtracker.emu import wire_mpu
 from pysidtracker.playspec import compile_program, elaborate, parse
 from pysidtracker.playspec.pyexec import controls
 
-from pydefmon._spec_layout import spec_text
+from pydefmon.spec import spec_text
 
 from tests._support import editor_image_bytes
 

@@ -20,22 +20,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Union
 
-from functools import lru_cache
-
 from pysidtracker import EmuPlayer, SidImage, SidParseError
 from pysidtracker import registers as reg
 from pysidtracker.cadence import playroutine_cadence
 from pysidtracker.header import write_psid
-from pysidtracker.playspec import SpecError, SpecPlayer, parse
+from pysidtracker.playspec import SpecError, SpecPlayer
 
 from pydefmon import _sid_format
-from pydefmon._spec_layout import (
-    defmon_binding,
-    entry_base,
-    play_entries,
-    player_bases,
-    spec_text,
-)
+from pydefmon.spec import spec, spec_bind, spec_entries
 from pydefmon.defmon import DefmonError, DefmonSong
 
 PlayerSource = Union[bytes, bytearray, str, Path, SidImage, DefmonSong]
@@ -87,25 +79,6 @@ def replay_image(source: "SidImage | bytes") -> SidImage:
     return SidImage.from_bytes(psid)
 
 
-@lru_cache(maxsize=None)
-def _spec():
-    return parse(spec_text("defmon"))
-
-
-def _entries(view):
-    entries = set()
-    try:
-        for base in player_bases(view):
-            entries |= play_entries(view, base)
-    except ValueError:
-        return set()
-    return entries
-
-
-def _bind(view, entry):
-    return defmon_binding(view, entry_base(view, entry), entry)
-
-
 class DefmonPlayer(SpecPlayer):
     """Per-frame SID register player for a defMON PSID/RSID replay.
 
@@ -154,14 +127,14 @@ class DefmonPlayer(SpecPlayer):
         if subtune is None:
             subtune = (header.start_song or 1) - 1
         super().__init__(
-            _spec(),
+            spec(),
             image.image,
             image.load,
             init,
             play,
             subtune,
-            bind=_bind,
-            entries=_entries,
+            bind=spec_bind,
+            entries=spec_entries,
             validate=validate,
             illegal_opcodes=True,
             sid_model=reg.sid_model_for_flags(header.flags),

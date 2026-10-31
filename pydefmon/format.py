@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Iterator, Mapping, Sequence
 
 from pysidtracker import SidFormat, SidImage
+from pysidtracker.formats import SidFormatError, SpecBinding
 
 from pydefmon import _sid_format
 from pydefmon._layout import (
@@ -28,7 +29,8 @@ from pydefmon._layout import (
 )
 from pydefmon.defmon import DefmonSidParser, DefmonSong
 from pydefmon._variant import detect_variant
-from pydefmon.defmon_player import DefmonPlayer
+from pydefmon.defmon_player import DefmonPlayer, replay_image
+from pydefmon.spec import player_bases, spec, spec_bind, spec_entries
 from pydefmon.tune import ARRANGERS, Tune, _page
 
 
@@ -88,6 +90,30 @@ def _streams(song: DefmonSong) -> Iterator[tuple]:
         yield f"row ${y:02x}", row.model, "row"
 
 
+def _spec(song: DefmonSong) -> SpecBinding:
+    """The playspec of the song's own single-SID replay.
+
+    Raises:
+        SidFormatError: the replay plays more than one copy of the player (2SID).
+    """
+    image = replay_image(SidImage.from_bytes(song.image_bytes))
+    if len(player_bases(image.image)) > 1:
+        raise SidFormatError("a stereo (2SID) replay has no single-SID playspec")
+    subtune = song.subtune
+    if subtune is None:
+        subtune = (image.header.start_song or 1) - 1
+    raw = song.image_bytes
+    container = raw if raw[:4] in (b"PSID", b"RSID") else None
+    return SpecBinding(
+        spec(),
+        spec_bind,
+        image.image,
+        spec_entries,
+        subtune=subtune,
+        sid=container,
+    )
+
+
 def defmon_format() -> SidFormat:
     """The :class:`~pysidtracker.SidFormat` describing defMON for the generic CLI."""
     return SidFormat(
@@ -101,5 +127,6 @@ def defmon_format() -> SidFormat:
         probes={"snapshot": lambda song: bytes(song.snapshot)},
         grammar=STREAMS,
         streams=_streams,
+        spec=_spec,
         canonical=lambda song: str(Tune.from_song(song).canonical()),
     )

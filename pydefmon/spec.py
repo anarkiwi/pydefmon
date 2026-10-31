@@ -1,15 +1,23 @@
-"""Binding of the playspec fragments to a replay's code (private).
+"""The playspec and its binding to a replay's code.
 
 The player keeps most of its state in the operands of its own instructions, at
 fixed offsets from the player base (the signature address less
-``_SIGNATURE_FROM_PLAYER_BASE``).
+``_SIGNATURE_FROM_PLAYER_BASE``). :func:`spec` is the whole play routine,
+:func:`defmon_binding` binds it to a replay and :func:`build_facts` reports what the
+binding found; :func:`spec_entries` and :func:`spec_bind` are the ``entries`` and ``bind``
+hooks of a :class:`~pysidtracker.playspec.SpecPlayer`.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
+from types import MappingProxyType
+from typing import Mapping
 
 from pysidtracker import CodePattern, find_code_all, find_code_first
+from pysidtracker.playspec import Spec, parse
 
 from pydefmon._sid_format import (
     _SIG_SPEC,
@@ -23,6 +31,12 @@ SPECS = Path(__file__).resolve().parent / "specs"
 def spec_text(name: str) -> str:
     """The source of the packaged playspec ``name`` (``defmon``, ``defmon_band``...)."""
     return (SPECS / f"{name}.play").read_text(encoding="utf-8")
+
+
+@lru_cache(maxsize=None)
+def spec() -> Spec:
+    """The parsed ``defmon.play``: the whole play routine."""
+    return parse(spec_text("defmon"))
 
 
 SID_BASE = 0xD400
@@ -515,3 +529,122 @@ def defmon_binding(mem, base: int, entry: "int | None" = None) -> dict:
         ),
     }
     return binding
+
+
+def spec_entries(view) -> set:
+    """The modelled entries of every copy of the player in ``view`` (none if it has no
+    player)."""
+    entries: set = set()
+    try:
+        for base in player_bases(view):
+            entries |= play_entries(view, base)
+    except ValueError:
+        return set()
+    return entries
+
+
+def spec_bind(view, entry: int) -> dict:
+    """The ``defmon.play`` layout of the copy of the player that ``entry`` enters."""
+    return defmon_binding(view, entry_base(view, entry), entry)
+
+
+#: The build flags of ``defmon.play``'s layout.
+BUILD_FLAGS = (
+    "uncounted",
+    "plain_tr",
+    "or_ctrl",
+    "floored",
+    "shifts",
+    "fixed",
+    "reduced",
+)
+
+#: The tables the player reads, by layout name: the note pitch (a low and a high byte per
+#: note index), the slide rates, the arranger's voice pages, the pattern pointers and the
+#: sidTAB row pointers and delays.
+BUILD_TABLES = (
+    "pitch_lo",
+    "pitch_hi",
+    "rate_lo",
+    "rate_hi",
+    "v1",
+    "v2",
+    "v3",
+    "pat_lo",
+    "pat_hi",
+    "rows_lo",
+    "rows_hi",
+    "dl",
+)
+
+#: The cells the replay's init leaves for the first play call to continue from: the
+#: arranger's trigger and cursor, the loop owner and count, the readers' step counters and
+#: pattern pointers, the cascade blocks' counters and row indexes, the cutoff slide and
+#: the voice records.
+BUILD_STATE = (
+    "trigger",
+    "cursor",
+    "owner",
+    "count",
+    "counter",
+    "ptr_lo",
+    "ptr_hi",
+    "count_a",
+    "row_a",
+    "count_b",
+    "row_b",
+    "cut_lo",
+    "cut_hi",
+    "cut_step_lo",
+    "cut_step_hi",
+    "slide_lo",
+    "slide_hi",
+    "mode",
+    "depth",
+    "detune",
+    "note",
+    "note_base",
+    "freq_lo",
+    "freq_hi",
+    "pw_lo",
+    "pw_hi",
+    "wgh",
+    "wgl",
+    "ad",
+    "sr",
+    "res",
+    "fv",
+)
+
+
+@dataclass(frozen=True)
+class BuildFacts:
+    """What :func:`defmon_binding` found in a copy of the player.
+
+    ``flags`` are the build flags (:data:`BUILD_FLAGS`), ``tables`` the addresses of the
+    tables (:data:`BUILD_TABLES`) and ``state`` the addresses of the cells that hold the
+    post-init state (:data:`BUILD_STATE`; the per-voice ones are voice 0's, the next
+    voices ``VOICE_STRIDE`` bytes on). ``binding`` is the whole layout.
+    """
+
+    base: int
+    flags: Mapping[str, bool]
+    tables: Mapping[str, int]
+    state: Mapping[str, int]
+    binding: Mapping[str, int]
+
+
+def build_facts(mem, base: int, entry: "int | None" = None) -> BuildFacts:
+    """The :class:`BuildFacts` of the player at ``base`` in ``mem``.
+
+    Raises:
+        ValueError: a block is not where the player's code puts it.
+    """
+    binding = defmon_binding(mem, base, entry)
+    return BuildFacts(
+        base,
+        MappingProxyType({name: bool(binding[name]) for name in BUILD_FLAGS}),
+        MappingProxyType({name: binding[name] for name in BUILD_TABLES}),
+        MappingProxyType({name: binding[name] for name in BUILD_STATE}),
+        MappingProxyType(binding),
+    )

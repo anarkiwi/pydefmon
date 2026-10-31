@@ -9,7 +9,7 @@ import pytest
 from pysidtracker.playspec import compile_program, elaborate, parse
 from pysidtracker.playspec.pyexec import controls
 
-from pydefmon._spec_layout import spec_text
+from pydefmon.spec import spec_text
 
 
 class Run:

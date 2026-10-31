@@ -55,7 +55,7 @@ grid = DefmonPlayer("tune.sid").render_grid(song_frames("tune.sid"))   # whole s
 `Tune.from_song(song)` reduces a song to what its player reads, as text in a
 [lark grammar](docs/grammar.md) with a canonical form for semantic comparison.
 
-See [docs/usage.md](docs/usage.md) for editing, the register-write API, and the
+See [docs/spec.md](docs/spec.md) for the play spec, its public binding API and standard notes, and [docs/usage.md](docs/usage.md) for editing, the register-write API, and the
 shared `pysidtracker` command line (`info` / `reglog` / `wav`, which pydefmon
 plugs into), and [docs/format.md](docs/format.md) for the canonical file-format
 and runtime-RAM reference.

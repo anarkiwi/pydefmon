@@ -30,8 +30,7 @@ from pysidtracker.playspec import compile_program, elaborate
 from pysidtracker.playspec.pyexec import controls
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import defmon_binding, entry_base
-from pydefmon.defmon_player import _spec
+from pydefmon.spec import defmon_binding, entry_base, spec as play_spec
 
 #: Values a byte is drawn from half the time: the edges the routine compares against.
 EDGES = (0, 0, 1, 2, 0x7F, 0x80, 0xFF, 0x40, 0x20, 0x10, 0x08, 0x01, 0xFE, 0x0F, 0x0E)
@@ -71,7 +70,7 @@ MUTANTS = (
 def mutated_spec(old: str, new: str):
     """The spec with the one change ``old`` -> ``new``."""
     from pysidtracker.playspec import parse  # pylint: disable=import-outside-toplevel
-    from pydefmon._spec_layout import (
+    from pydefmon.spec import (
         spec_text,
     )  # pylint: disable=import-outside-toplevel
 
@@ -98,7 +97,7 @@ class Routine:
         for entry in self.entries:
             base = entry_base(self.view, entry)
             binding = defmon_binding(self.view, base, entry)
-            program = elaborate(spec or _spec(), binding)
+            program = elaborate(spec or play_spec(), binding)
             self.bindings[entry] = binding
             self.programs[entry] = (
                 program,
@@ -206,7 +205,7 @@ class Routine:
                 and cell.owner.split("[")[0] not in scheduled
             ):
                 continue
-            if cell.name in ("v1", "v2", "v3", "sid"):
+            if cell.name in ("v1", "v2", "v3", "sid") or cell.notes is not None:
                 continue
             if cell.name == "floor" and not binding["floored"]:
                 continue

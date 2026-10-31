@@ -19,7 +19,7 @@ from pysidtracker.playspec import parse
 from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonPlayer
-from pydefmon._spec_layout import entry_base
+from pydefmon.spec import entry_base
 
 from tests._support.routine_coverage import MUTANTS, Routine, mutated_spec
 

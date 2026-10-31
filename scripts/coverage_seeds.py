@@ -21,7 +21,7 @@ from pysidtracker.testing import (
     resolve_tune,
 )  # noqa: E402
 
-from pydefmon._spec_layout import (
+from pydefmon.spec import (
     entry_base,
 )  # noqa: E402
 from tests._support.routine_coverage import (  # noqa: E402

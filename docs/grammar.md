@@ -16,6 +16,8 @@ text = str(tune)                                          # the grammar's text
 assert Tune.parse(text) == tune
 canon = tune.canonical()                                  # merged + renumbered
 canon.to_song().to_file("out.prg")                        # an editor worktune again
+
+replay = Tune.from_player("tune.sid")                     # the replay's memory after init
 ```
 
 ## The language
@@ -82,10 +84,15 @@ names its target, and a row followed by a JP has that target as `next`. Columns
 are those whose bitmap bits the player tests (low bits 7..1, high bits 7..3), in
 the order it reads them. Unused bitmap bits and trailing bytes are dropped.
 
+A row the walker lands on (a jump's target, or the row after a counted jump's last pass) is
+played as patterns whatever its V1; `land $yy: $p1 $p2 $p3` lines under a `sid` list those whose
+V1 has bit 7 (`Tune.landed`). A row can be both a jump row, stepped onto, and a landing.
+
 Arranger rows, pattern bodies and sidTAB rows are read through the byte grammar
 [`pydefmon/streams.lark`](../pydefmon/streams.lark): rule `editor` for the
-editor's 4-byte steps, `packed` for a replay's streams (one payload byte per
-set gate), `arranger` for a chip's reached arranger rows (three bytes each; V1 bit 7
+editor's 4-byte steps, `packed` for the editor's decode of a replay's stream (one payload byte per
+set gate, 32 steps at most); `stream` and `fixed` (4-byte steps) for the streams the replay's
+step reader reads, which run to the first ALT step with no step cap, `arranger` for a chip's reached arranger rows (three bytes each; V1 bit 7
 marks a jump row) and `row` for a sidTAB row, whose bitmap bits select the column
 values after them (`pysidtracker.BitField`). `pysidtracker grammar SONG` prints
 the streams the player reads.
@@ -127,11 +134,37 @@ row can take a JP row in the slot after it. Otherwise rows are laid out
 again from slot `$01`, sources first, with one JP row closing each chain that
 runs into a row already placed.
 
+## From the replay's memory
+
+`Tune.from_replay(mem, base=None, entry=None)` reads the 64 KiB a replay's init leaves, as
+`specs/defmon.play` does: `build_facts` / `defmon_binding` (`pydefmon.spec`) locate the tables of
+the copy of the player at `base`, and nothing is read from the editor's snapshot.
+`Tune.from_player(source, subtune=None)` runs `DefmonPlayer`'s init first.
+
+- An arranger row is three bytes; a pattern number is any byte, its pointer read from `pat_lo` /
+  `pat_hi` at that index, past the 128 entries the editor stores.
+- A pattern is the stream at its pointer (`stream`, or `fixed` for the build with 4-byte steps) up
+  to its first ALT step wherever that falls, the address wrapping past `$FFFF`; it may continue
+  into the memory after it. No ALT step in 64 KiB raises `DefmonError`.
+- A JP sidTAB row (`rows_hi` 0) names `rows_lo` one level deep. A target that is itself a JP row is
+  the row read from page zero at `rows_lo`, whatever init left there; one that overlaps the cells
+  the row interpreter writes (`rowptr`, `scratch`) raises `DefmonError`.
+- The walk starts at the arranger cursor init leaves. `Tune.init` (`Init`) holds the walker's
+  `trigger`, `cursor`, `owner` and `count` (0 without loop counts), the cells shared by the voices
+  (`cells`: the cutoff slide, `res`, `fv`) and each voice's (`voices`), by the names of
+  `pydefmon.spec.BUILD_STATE`.
+- The reduced entry runs no walker or readers and raises; a stereo replay is read one copy of the
+  player at a time (`base`).
+
+The model of a replay holds what `Tune.from_song` does for an editor song, plus `landed` and
+`init`; `canonical()`, text and `parse` work on both. `to_song()` raises `DefmonError` for a tune
+the editor cannot store: a landing, a pattern number `>= $80`.
+
 ## Not representable
 
 `Tune.from_song` raises `DefmonError` when the player would read bytes that no
 editor song defines. These are: a pattern played past its 32 decoded steps, an
-arranger step none of whose patterns ends, a pattern number `>= $80`, and a JP
-onto a JP row. On HVSC this flags the replays whose structure
-`DefmonSong`'s replay reader cannot rebuild yet. Run
+arranger step none of whose patterns ends, a pattern number `>= $80`, a row landed on
+whose V1 has bit 7, and a JP onto a JP row. On HVSC this flags the replays whose structure
+`DefmonSong`'s replay reader cannot rebuild; `Tune.from_replay` reads them. Run
 `python scripts/grammar_survey.py` to list them.

@@ -132,6 +132,8 @@ class _ToSteps(Transformer):
         model = EditorPattern(steps)
         return Parsed(model, len(model.to_bytes()))
 
+    fixed = editor
+
     def packed(self, *steps) -> Parsed:
         model = PackedPattern(steps)
         return Parsed(model, len(model.to_bytes()))
@@ -140,6 +142,8 @@ class _ToSteps(Transformer):
         return tuple(ord(b) for b in row)
 
     jump_row = play_row
+
+    stream = packed
 
     def arranger(self, *rows) -> Parsed:
         return Parsed(ArrangerRows(rows), 3 * len(rows))
@@ -162,7 +166,7 @@ class _ToSteps(Transformer):
 STREAMS = ByteGrammar(
     __package__,
     "streams.lark",
-    ("editor", "packed", "row", "arranger"),
+    ("editor", "packed", "stream", "fixed", "row", "arranger"),
     _ToSteps(),
     bitmaps={"LOWMAP": _tags(LOW_COLUMNS), "HIGHMAP": _tags(HIGH_COLUMNS)},
 )

@@ -15,9 +15,10 @@ setting: "jumps" JUMPS              -> jumps
        | "tempo" HEX "x" INT        -> tempo
        | "stereo" HEX               -> stereo
 
-chip: "sid" INT step+
+chip: "sid" INT step+ landing*
 step: HEX ":" HEX HEX HEX           -> play
     | HEX ":" "jump" HEX ["x" INT]  -> jump
+landing: "land" HEX ":" HEX HEX HEX -> land
 
 pattern: "pattern" HEX event*
 event: INT ":" gate* ["end" INT]

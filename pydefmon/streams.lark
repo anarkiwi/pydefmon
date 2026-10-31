@@ -1,14 +1,20 @@
 // defMON pattern streams and sidTAB rows as the player walks them, one latin-1 character per
 // byte (pysidtracker.ByteGrammar). A step's flag byte carries ALT ($80), the
 // gates a ($40), b ($20) and n ($10) and the duration nibble; a stream ends
-// after its ALT step, or after the 32 steps a pattern holds.
+// after its ALT step.
 //
-// editor: the editor's live player reads 4-byte steps, payload a, b, note.
-// packed: the replay player reads one payload byte per set gate, in that order.
+// stream: what the replay's step reader reads, one payload byte per set gate, in that
+//   order, from its pointer to the first ALT step wherever that falls.
+// fixed: the same with 4-byte steps (payload a, b, note), the build with a fixed step.
+// editor, packed: the editor's snapshot holds a pattern in 32 steps at most, so these end
+//   after the 32 steps as well.
 // The 32nd step without an ALT is its own rule so that only a stream's last
 // step can be followed by the bytes stored after it (_TAIL).
 
 %import bytes (BYTE, _TAIL)
+
+stream: packed_step* packed_alt _TAIL?
+fixed: editor_step* EDIT_ALT BYTE BYTE BYTE _TAIL?
 
 editor: editor_step~0..31 EDIT_ALT BYTE BYTE BYTE _TAIL?
       | editor_step~31 editor_last _TAIL?

@@ -52,7 +52,8 @@ for reg, value in player.play_frame():      # reg is a 0..24 SID register offset
 grid = DefmonPlayer("tune.sid").render_grid(song_frames("tune.sid"))   # whole song x 25 registers
 ```
 
-`Tune.from_song(song)` reduces a song to what its player reads, as text in a
+`Tune.from_song(song)` reduces an editor song, and `Tune.from_replay(mem)` / `Tune.from_player(sid)` a
+replay's memory after init, to what its player reads, as text in a
 [lark grammar](docs/grammar.md) with a canonical form for semantic comparison.
 
 See [docs/spec.md](docs/spec.md) for the play spec, its public binding API and standard notes, and [docs/usage.md](docs/usage.md) for editing, the register-write API, and the

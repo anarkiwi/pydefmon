@@ -2,7 +2,9 @@
 
 A :class:`Tune` keeps only what the player consumes from what the editor wrote:
 reachable arranger rows, patterns up to their ALT step and the sidTAB rows the
-cascade fetches, with JP rows resolved into edges (see ``docs/grammar.md``).
+cascade fetches, with JP rows resolved into edges (see ``docs/grammar.md``). :meth:`Tune.from_song`
+reads the editor's snapshot, :meth:`Tune.from_replay` the memory a replay's init leaves, as the
+replay's own routine (``specs/defmon.play``) reads it.
 """
 
 from __future__ import annotations
@@ -11,11 +13,12 @@ import dataclasses
 from dataclasses import dataclass, field
 from functools import lru_cache
 from importlib.resources import files
-from typing import Iterable, Optional, Union
+from typing import Callable, Iterable, Mapping, Optional, Union
 
 from lark import Lark, Transformer, v_args
 from pysidtracker import (
     CodePattern,
+    SidParseError,
     find_code_first,
     init_arguments,
     layout_chains,
@@ -40,6 +43,7 @@ from pydefmon._layout import (
     STREAMS,
 )
 from pydefmon.defmon import STEREO_ENABLE, DefmonError, DefmonSong, SidtabRow
+from pydefmon.spec import READER_STRIDE, VOICE_STRIDE, build_facts, player_bases
 
 #: V1/V2/V3 arranger pages per SID chip (SID#2 only while stereo is enabled).
 ARRANGERS = ((0x1B00, 0x1C00, 0x1D00), (0x6E00, 0x6F00, 0x7000))
@@ -51,6 +55,12 @@ STOP = 0x80
 MAX_DURATION = 0x0F
 PATTERNS = 0x80
 ROWS = 0x100
+SPAN = 1 << 16
+#: The state cells of the replay that are not per voice, and the per-reader ones.
+_SINGLE_CELLS = frozenset(
+    "trigger cursor owner count cut_lo cut_hi cut_step_lo cut_step_hi res fv".split()
+)
+_READER_CELLS = frozenset(("counter", "ptr_lo", "ptr_hi"))
 #: sidTAB columns in the order the player applies them.
 _SIGNATURE_FROM_PLAYER_BASE = 0x22
 # Jump rows of the players without loop counts: LDA arr2,Y / TAY / LDX arr1,Y.
@@ -108,8 +118,35 @@ class Row:
 
 
 @dataclass(frozen=True)
+class Init:
+    """The state a replay's init leaves for its first play call, read from its memory.
+
+    ``trigger``, ``cursor``, ``owner`` and ``count`` are the arranger walker's (``owner`` and
+    ``count`` are 0 for a build without loop counts). ``cells`` holds the cells shared by
+    the voices (the cutoff slide ``cut_lo``, ``cut_hi``, ``cut_step_lo``, ``cut_step_hi``,
+    ``res`` and ``fv``) and ``voices`` the others of each of the three voices, by the
+    names of :data:`pydefmon.spec.BUILD_STATE` (``counter``, ``ptr_lo`` and ``ptr_hi`` are
+    the voice's step reader's).
+    """
+
+    trigger: int
+    cursor: int
+    owner: int
+    count: int
+    cells: Mapping[str, int] = field(default_factory=dict)
+    voices: tuple[Mapping[str, int], ...] = ()
+
+
+@dataclass(frozen=True)
 class Tune:
-    """A defMON song reduced to what its player reads."""
+    """A defMON song reduced to what its player reads.
+
+    ``landed[n][y]`` is the :class:`Play` of a chip-``n + 1`` arranger row ``y`` with V1 bit 7
+    that the walker also plays as patterns, because it lands on the row (a jump's target, or
+    the row after a counted jump's last pass), where ``chips[n][y]`` is its :class:`Jump` if
+    the walker also steps onto it. It is empty when no row is both. ``init`` is the state a
+    replay's init leaves (:meth:`from_replay`).
+    """
 
     chips: tuple[dict[int, Step], ...]
     patterns: dict[int, tuple[Event, ...]] = field(default_factory=dict)
@@ -118,6 +155,8 @@ class Tune:
     starts: tuple[int, ...] = (0,)
     tempo: Optional[tuple[int, int]] = None
     sid2_base: Optional[int] = None
+    landed: tuple[dict[int, Play], ...] = ()
+    init: Optional[Init] = field(default=None, compare=False)
 
     @classmethod
     def from_song(cls, song: DefmonSong) -> "Tune":
@@ -146,40 +185,27 @@ class Tune:
         )
         starts = _start_rows(song)
         stereo = bool(song.snapshot[STEREO_ENABLE])
-        chips = tuple(
-            _walk_arranger(snap, pages, starts, counted)
+        walks = tuple(
+            _walk_arranger(
+                tuple(_page(snap, p) for p in pages), starts, counted, PATTERNS
+            )
             for pages in ARRANGERS[: 1 + stereo]
         )
+        chips = tuple(chip for chip, _ in walks)
         decoded = {
             p: _decode_pattern(
                 snap[_offset(PATTERN_BANK + p * PATTERN_STRIDE) :][:PATTERN_STRIDE],
                 resolve,
             )
-            for chip in chips
-            for step in chip.values()
-            if isinstance(step, Play)
-            for p in step.voices
+            for p in _played(chips)
         }
-        patterns = {}
-        for p, horizon in _horizons(chips, decoded).items():
-            events, span = decoded[p]
-            if span is not None and span <= horizon:
-                raise DefmonError(f"pattern ${p:02x} plays past its 32 steps")
-            patterns[p] = tuple(ev for ev in events if ev.at <= horizon)
-        todo = [y for evs in patterns.values() for ev in evs for y in (ev.a, ev.b)]
-        rows: dict[int, Row] = {}
-        while todo:
-            y = todo.pop()
-            if y is None or y in rows:
-                continue
+        patterns = _truncate(chips, decoded)
+
+        def columns(y: int):
             body = bytes(snap[_offset(SIDTAB_BANK + y * SIDTAB_ROW_STRIDE) :][:15])
-            columns = tuple(SidtabRow.parse(y, body).values().items())
-            if dls[y] & STOP:
-                rows[y] = Row(columns)
-            else:
-                nxt = resolve((y + 1) % ROWS)
-                rows[y] = Row(columns, dls[y] + 1, nxt)
-                todo.append(nxt)
+            return SidtabRow.parse(y, body).values().items()
+
+        rows = _reached_rows(patterns, columns, dls, resolve)
         timer = song.cia2_timer
         return cls(
             chips=chips,
@@ -191,6 +217,96 @@ class Tune:
             sid2_base=song.sid2_base if stereo else None,
         )
 
+    @classmethod
+    def from_replay(
+        cls, mem: bytes, base: Optional[int] = None, entry: Optional[int] = None
+    ) -> "Tune":
+        """The song a replay reads in ``mem``, the 64 KiB its init leaves.
+
+        The tables are found by :func:`pydefmon.spec.build_facts` in the copy of the player
+        at ``base`` (the first, by default) and read as ``specs/defmon.play`` reads them:
+
+        * an arranger row is three bytes; a pattern number is any byte, and the pattern's
+          pointer entry is read from the tables ``pat_lo`` / ``pat_hi`` at that index, past
+          the 128 entries the editor stores;
+        * a pattern is the stream at its pointer, up to its first ALT step wherever that
+          falls (``stream`` / ``fixed`` of ``streams.lark``), so it may continue into the
+          memory after it;
+        * a JP sidTAB row names its target one level deep; a target that is itself a JP row
+          is the row read from page zero.
+
+        ``entry`` is the address the routine is entered at. The walk starts at the arranger
+        cursor init leaves; :attr:`init` holds the state.
+
+        Raises:
+            DefmonError: no player in ``mem``, the reduced entry (which runs no arranger), a
+            pattern with no ALT step in 64 KiB, or a page-zero row read from cells the row
+            interpreter writes.
+        """
+        mem = bytes(mem)
+        if len(mem) != SPAN:
+            raise DefmonError(f"a replay's memory is {SPAN} bytes, not {len(mem)}")
+        try:
+            base = player_bases(mem)[0] if base is None else base
+            facts = build_facts(mem, base, entry)
+        except (ValueError, IndexError) as exc:
+            raise DefmonError(f"no defMON player: {exc}") from exc
+        if facts.flags["reduced"]:
+            raise DefmonError("the reduced entry runs no arranger walker")
+        binding, counted = facts.binding, not facts.flags["uncounted"]
+        pages = tuple(_table(mem, facts.tables[n]) for n in ("v1", "v2", "v3"))
+        rows_lo, rows_hi, dls = (
+            _table(mem, facts.tables[n]) for n in ("rows_lo", "rows_hi", "dl")
+        )
+        init = _init(mem, facts)
+        chip, landed = _walk_arranger(pages, (init.cursor,), counted)
+
+        def resolve(y: int) -> int:
+            return y if rows_hi[y] else rows_lo[y]
+
+        pointers = [_table(mem, facts.tables[n]) for n in ("pat_lo", "pat_hi")]
+        rule = "fixed" if facts.flags["fixed"] else "stream"
+        zero_page = {binding[n] for n in ("rowptr_lo", "rowptr_hi", "scratch")}
+
+        def columns(y: int):
+            at = rows_hi[y] << 8 | rows_lo[y]
+            span = range(at, at + SIDTAB_ROW_STRIDE)
+            if not rows_hi[y] and zero_page & set(span):
+                raise DefmonError(f"row ${y:02x} is read from cells the replay writes")
+            body = bytes(mem[a & 0xFFFF] for a in span)
+            return STREAMS.parse_prefix(body, "row").model[2]
+
+        def pattern(p: int):
+            ptr = pointers[0][p] | pointers[1][p] << 8
+            try:
+                steps = STREAMS.parse_prefix(mem[ptr:] + mem[:ptr], rule).model
+            except SidParseError as exc:
+                raise DefmonError(f"pattern ${p:02x} has no ending ALT step") from exc
+            return _events(steps, resolve)
+
+        chips = (chip,)
+        decoded = {p: pattern(p) for p in _played(chips, (landed,))}
+        patterns = _truncate(chips, decoded, (landed,))
+        return cls(
+            chips=chips,
+            patterns=patterns,
+            rows=_reached_rows(patterns, columns, dls, resolve),
+            counted=counted,
+            starts=(init.cursor,),
+            landed=(landed,) if landed else (),
+            init=init,
+        )
+
+    @classmethod
+    def from_player(cls, source, subtune: Optional[int] = None) -> "Tune":
+        """The song a :class:`~pydefmon.DefmonPlayer` for ``source`` (replay bytes, a path
+        or a :class:`~pysidtracker.SidImage`) reads in the memory its init leaves."""
+        # pylint: disable-next=import-outside-toplevel,cyclic-import
+        from pydefmon.defmon_player import DefmonPlayer
+
+        player = DefmonPlayer(source, subtune=subtune)
+        return cls.from_replay(player.memory, entry=player.entry)
+
     def to_song(self) -> DefmonSong:
         """An editor-form :class:`~pydefmon.DefmonSong` that plays this tune.
 
@@ -198,6 +314,8 @@ class Tune:
         can take a JP row in the slot after it; otherwise they are laid out
         afresh, chains first.
         """
+        if self.landed:
+            raise DefmonError("the editor cannot store a landing on a jump row")
         song = DefmonSong()
         snap = song.snapshot
         for gate in (
@@ -255,7 +373,7 @@ class Tune:
             for p, events in self.patterns.items()
         }
         pnum: dict = {}
-        for chip in self.chips:
+        for chip in (*self.chips, *self.landed):
             for _y, step in sorted(chip.items()):
                 if isinstance(step, Play):
                     for p in step.voices:
@@ -282,6 +400,7 @@ class Tune:
         return dataclasses.replace(
             self,
             chips=tuple({y: remap(s) for y, s in chip.items()} for chip in self.chips),
+            landed=tuple({y: remap(s) for y, s in c.items()} for c in self.landed),
             patterns={
                 n: tuple(_map_rows(ev, rnum) for ev in key) for key, n in pnum.items()
             },
@@ -309,6 +428,9 @@ class Tune:
                     body = f"jump {_hex(s.target)}"
                     body += f" x{s.count}" if self.counted else ""
                 out.append(f"  {_hex(y)}: {body}")
+            if n <= len(self.landed):
+                for y, s in sorted(self.landed[n - 1].items()):
+                    out.append(f"  land {_hex(y)}: " + " ".join(map(_hex, s.voices)))
         for p, events in self.patterns.items():
             out.append(f"pattern {_hex(p)}")
             for ev in events:
@@ -365,16 +487,51 @@ def _start_rows(song: DefmonSong) -> tuple[int, ...]:
     return tuple(dict.fromkeys(s if a is None else a for s, a in enumerate(starts)))
 
 
+def _table(mem: bytes, addr: int) -> bytes:
+    """The 256 entries of the table at ``addr``, the address wrapping past $FFFF."""
+    return (mem + mem)[addr & 0xFFFF :][:0x100]
+
+
+def _init(mem: bytes, facts) -> Init:
+    """The state the replay's init leaves, at the cells ``facts`` names."""
+    state = {n: a for n, a in facts.state.items() if n not in _SINGLE_CELLS}
+    single = {n: mem[a] for n, a in facts.state.items() if n in _SINGLE_CELLS}
+    counted = not facts.flags["uncounted"]
+    return Init(
+        trigger=single.pop("trigger"),
+        cursor=single.pop("cursor"),
+        owner=single.pop("owner") if counted else 0,
+        count=single.pop("count") if counted else 0,
+        cells=single,
+        voices=tuple(
+            {
+                n: mem[
+                    (a + v * (READER_STRIDE if n in _READER_CELLS else VOICE_STRIDE))
+                    & 0xFFFF
+                ]
+                for n, a in state.items()
+            }
+            for v in range(3)
+        ),
+    )
+
+
 def _walk_arranger(
-    snap, pages: tuple[int, int, int], starts: Iterable[int], counted: bool
-) -> dict[int, Step]:
-    """The rows the arranger walker reaches from ``starts``.
+    pages: tuple, starts: Iterable[int], counted: bool, limit: Optional[int] = None
+) -> tuple[dict[int, Step], dict[int, Play]]:
+    """The rows the arranger walker reaches from ``starts``, and those it lands on.
 
     Only a row stepped onto from the previous one is checked for a jump; the
-    row a jump lands on or a counted jump falls through to is played as is.
+    row a jump lands on or a counted jump falls through to is played as is, a V1 with
+    bit 7 naming a pattern all the same. Such a row is in the second result; it is
+    in the first as well unless the walker also steps onto it.
+
+    Raises:
+        DefmonError: a row plays a pattern ``>= limit``.
     """
-    v1, v2, v3 = (_page(snap, p) for p in pages)
+    v1, v2, v3 = pages
     steps: dict[int, Step] = {}
+    landed: dict[int, Play] = {}
     seen = set()
     todo = [(s, True) for s in starts]
     while todo:
@@ -387,20 +544,72 @@ def _walk_arranger(
             todo.append((step.target, False))
             if step.count:
                 todo.append(((y + 1) % ROWS, False))
+            steps[y] = step
         else:
-            step = Play((v1[y], v2[y], v3[y]))
-            if max(step.voices) >= PATTERNS:
-                raise DefmonError(f"arranger row ${y:02x} plays {step.voices}")
+            play = Play((v1[y], v2[y], v3[y]))
+            if limit is not None and max(play.voices) >= limit:
+                raise DefmonError(f"arranger row ${y:02x} plays {play.voices}")
+            if not checked and v1[y] & 0x80:
+                landed[y] = play
+            if not isinstance(steps.get(y), Jump):
+                steps[y] = play
             todo.append(((y + 1) % ROWS, True))
-        steps[y] = step
-    return dict(sorted(steps.items()))
+    return dict(sorted(steps.items())), dict(sorted(landed.items()))
 
 
-def _decode_pattern(body, resolve) -> tuple[tuple[Event, ...], Optional[int]]:
+def _played(chips, landed=()) -> list[int]:
+    """The patterns the arranger rows of ``chips`` and ``landed`` play, in order."""
+    return sorted(
+        {
+            p
+            for chip in (*chips, *landed)
+            for step in chip.values()
+            if isinstance(step, Play)
+            for p in step.voices
+        }
+    )
+
+
+def _truncate(chips, decoded, landed=()) -> dict[int, tuple[Event, ...]]:
+    """The events of each decoded pattern up to the latest tick its arranger rows reach."""
+    patterns = {}
+    for p, horizon in _horizons(chips, decoded, landed).items():
+        events, span = decoded[p]
+        if span is not None and span <= horizon:
+            raise DefmonError(f"pattern ${p:02x} plays past its 32 steps")
+        patterns[p] = tuple(ev for ev in events if ev.at <= horizon)
+    return patterns
+
+
+def _reached_rows(
+    patterns, columns: Callable, dls, resolve: Callable[[int], int]
+) -> dict[int, Row]:
+    """The sidTAB rows the cascade fetches from the rows the ``patterns`` arm.
+
+    ``columns(y)`` are row ``y``'s column writes, ``dls[y]`` its DL and ``resolve`` the
+    row a JP row names.
+    """
+    todo = [y for evs in patterns.values() for ev in evs for y in (ev.a, ev.b)]
+    rows: dict[int, Row] = {}
+    while todo:
+        y = todo.pop()
+        if y is None or y in rows:
+            continue
+        cols = tuple(columns(y))
+        if dls[y] & STOP:
+            rows[y] = Row(cols)
+        else:
+            nxt = resolve((y + 1) % ROWS)
+            rows[y] = Row(cols, dls[y] + 1, nxt)
+            todo.append(nxt)
+    return dict(sorted(rows.items()))
+
+
+def _events(steps, resolve) -> tuple[tuple[Event, ...], Optional[int]]:
     """Events up to the ALT step, and when a 33rd step would start (no ALT)."""
     events = []
     at = 0
-    for flag, a, b, note in STREAMS.parse_prefix(body, "editor").model:
+    for flag, a, b, note in steps:
         if flag & (FLAG_ALT | FLAG_GATE_A | FLAG_GATE_B | FLAG_GATE_N):
             events.append(
                 Event(
@@ -417,17 +626,22 @@ def _decode_pattern(body, resolve) -> tuple[tuple[Event, ...], Optional[int]]:
     return tuple(events), at
 
 
+def _decode_pattern(body, resolve) -> tuple[tuple[Event, ...], Optional[int]]:
+    """The events of an editor pattern's 32 steps and when a 33rd would start."""
+    return _events(STREAMS.parse_prefix(body, "editor").model, resolve)
+
+
 def _end(events: Iterable[Event]) -> Optional[int]:
     return next((ev.at for ev in events if ev.end is not None), None)
 
 
-def _horizons(chips, decoded) -> dict[int, int]:
+def _horizons(chips, decoded, landed=()) -> dict[int, int]:
     """Per pattern, the latest tick any arranger step lets it play to.
 
     A step ends at its voices' first ALT, so later events are never applied.
     """
     horizon: dict[int, int] = {}
-    for chip in chips:
+    for chip in (*chips, *landed):
         for y, step in chip.items():
             if isinstance(step, Jump):
                 continue
@@ -512,17 +726,24 @@ class _ToTune(Transformer):
 
     def start(self, *items):
         settings: dict = {}
-        chips, patterns, rows = [], {}, {}
+        chips, landed, patterns, rows = [], [], {}, {}
         for kind, value in items:
             if kind == "chip":
-                chips.append(value)
+                chips.append(value[0])
+                landed.append(value[1])
             elif kind == "pattern":
                 patterns[value[0]] = value[1]
             elif kind == "row":
                 rows[value[0]] = value[1]
             else:
                 settings[kind] = value
-        return Tune(chips=tuple(chips), patterns=patterns, rows=rows, **settings)
+        return Tune(
+            chips=tuple(chips),
+            landed=tuple(landed) if any(landed) else (),
+            patterns=patterns,
+            rows=rows,
+            **settings,
+        )
 
     def jumps(self, token):
         return "counted", str(token) == "counted"
@@ -536,8 +757,15 @@ class _ToTune(Transformer):
     def stereo(self, base):
         return "sid2_base", _int(base)
 
-    def chip(self, _n, *steps):
-        return "chip", dict(steps)
+    def chip(self, _n, *items):
+        landings = [i[1:] for i in items if len(i) == 3]
+        return "chip", (
+            dict(i for i in items if len(i) == 2),
+            dict(landings),
+        )
+
+    def land(self, y, v1, v2, v3):
+        return "land", _int(y), Play((_int(v1), _int(v2), _int(v3)))
 
     def play(self, y, v1, v2, v3):
         return _int(y), Play((_int(v1), _int(v2), _int(v3)))

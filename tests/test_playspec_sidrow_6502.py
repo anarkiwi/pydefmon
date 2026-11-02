@@ -88,7 +88,6 @@ def test_sidrow_spec_equals_the_6502_interpreter(relpath):
             None,
             {"a": ROW_AT & 0xFF, "x": voice * VOICE_STRIDE},
         )
-        mpu._cache.clear()
         mpu.sp, mpu.x = CPU_SP, voice * VOICE_STRIDE
         run_to_rts_until(mpu, bus, base + SIDROW_ENTRY, ROW_AT & 0xFF, set(), 100_000)
         differing = [

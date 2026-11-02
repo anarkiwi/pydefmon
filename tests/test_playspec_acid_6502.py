@@ -73,7 +73,6 @@ def test_acid_spec_equals_the_6502_block(relpath):
             None,
             {name[4:]: 0 for name in program.inputs},
         )
-        mpu._cache.clear()
         mpu.sp = CPU_SP
         assert run_to_rts_until(mpu, bus, first, 0, {after}, 100_000)
         cells = (SID_BASE + 0x16, binding["acc_lo"], binding["acc_hi"])

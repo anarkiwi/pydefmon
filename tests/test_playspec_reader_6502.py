@@ -97,7 +97,6 @@ def test_reader_spec_equals_the_6502_reader(relpath):
             None,
             {name[4:]: 0 for name in program.inputs},
         )
-        mpu._cache.clear()
         mpu.sp = CPU_SP
         start = base + READER_START + at
         assert run_to_rts_until(mpu, bus, start, 0, {start + READER_STRIDE}, 100_000)

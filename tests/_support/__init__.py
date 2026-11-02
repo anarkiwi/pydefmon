@@ -267,11 +267,20 @@ def every_call_player(data: bytes, *, subtune: "int | None" = None):
     """The replay ``data`` on the CPU alone, with every play call run: the interrupt the
     real one misses is delivered, as the playspec-backed player delivers it."""
     # pylint: disable=import-outside-toplevel
+    from functools import partial
+    from unittest import mock
+
+    import pysidtracker.oracle as oracle
     from pysidtracker import EmuPlayer
-    from pysidtracker.emu import run_to_rts
+    from pysidtracker.emu import run_to_rts, wire_mpu
 
     class EveryCall(EmuPlayer):
-        """An ``EmuPlayer`` that never drops a play call."""
+        """An ``EmuPlayer`` that never drops a play call, on the stepping engine
+        (callers count the routines it enters through ``step``)."""
+
+        def _init(self, subtune):
+            with mock.patch.object(oracle, "wire_mpu", partial(wire_mpu, native=False)):
+                super()._init(subtune)
 
         def _frame(self):
             if self._period:

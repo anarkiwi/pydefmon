@@ -67,7 +67,6 @@ def test_pwsweep_spec_equals_the_6502_sweep(relpath):
             None,
             {"c": carry},
         )
-        mpu._cache.clear()
         mpu.sp, mpu.x = CPU_SP, voice * VOICE
         mpu.p = mpu.p | CARRY if carry else mpu.p & ~CARRY
         assert run_to_rts_until(mpu, bus, first, 0, {after}, 100_000)

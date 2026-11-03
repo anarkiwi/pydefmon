@@ -11,13 +11,7 @@ from pysidtracker.testing import resolve_tune
 
 from pydefmon import DefmonError, DefmonPlayer, DefmonSong, Event, Jump, Play, Row, Tune
 from pydefmon._layout import STREAMS
-from pydefmon.spec import (
-    READER_STRIDE,
-    VOICE_STRIDE,
-    build_facts,
-    entry_base,
-    player_bases,
-)
+from pydefmon.spec import READER_STRIDE, VOICE_STRIDE, build_facts, player_bases
 from pydefmon.tune import Init
 
 from tests._support import corpus_relpaths
@@ -32,6 +26,7 @@ TECHNO_AHA = GOTO80 + "Techno_Aha.sid"
 IN_MEMORY_OF = GOTO80 + "In_Memory_of.sid"
 GLOW_WORM = "MUSICIANS/I/Ilkke/Glow_Worm.sid"
 VACUOLE = "MUSICIANS/I/Ilkke/Vacuole.sid"
+STEREO = "MUSICIANS/F/F7sus4/Timewarp_Spheres_2SID.sid"
 REDUCED = (
     "MUSICIANS/F/F7sus4/Triangle_My_Amelie.sid",
     GOTO80 + "Svenska_Narkotika_3.sid",
@@ -42,7 +37,9 @@ NAMED = (
     + [(RELOADED, s) for s in range(1, 11)]
     + [(RELOADED_TITLE, 1), (TECHNO_AHA, 1), (IN_MEMORY_OF, 1)]
 )
-PLAYED = [(rel, None) for rel in corpus_relpaths() if rel not in REDUCED] + NAMED
+PLAYED = [
+    (rel, None) for rel in corpus_relpaths() if rel not in REDUCED + (STEREO,)
+] + NAMED
 
 
 def _data(relpath: str) -> bytes:
@@ -328,13 +325,29 @@ def test_a_tune_with_landings_round_trips_its_text():
     assert Tune.parse(str(tune)) == tune
 
 
+def _variables(player) -> dict:
+    """The spec's state and, under ``flags``, the first byte of each reader's next step."""
+    mem = player.memory
+    names = ("trigger", "order_at")
+    names += tuple(f"reader[{x}].{n}" for x in range(3) for n in ("counter", "ptr"))
+    names += tuple(f"table[{k}].{n}" for k in range(BLOCKS) for n in ("pos", "wait"))
+    names += tuple(
+        f"voice[{x}].{n}"
+        for x in range(3)
+        for n in ("note_base", "wgh", "wgl", "ad", "sr")
+    )
+    state = {name: player.state(name) for name in names}
+    state["flags"] = [mem[state[f"reader[{x}].ptr"]] for x in range(3)]
+    return state
+
+
 class Observer:
-    """The walker's loads, the readers' steps and the cascade blocks' state, call by call."""
+    """The walker's loads, the readers' steps and the sidTAB tables' state, call by call."""
 
     def __init__(self, player, facts):
         self.player, self.facts = player, facts
         self.reduced, self.calls = {}, 0
-        self.loads, self.blocks, self.voices, self.rowptr = [], [], [], []
+        self.loads, self.blocks, self.voices = [], [], []
         self.full_at = []
         self.applies = [[], [], []]
 
@@ -343,9 +356,6 @@ class Observer:
             facts = build_facts(self.player.memory, self.facts.base, entry)
             self.reduced[entry] = facts.flags["reduced"]
         return not self.reduced[entry]
-
-    def at(self, mem, name, index=0, stride=VOICE_STRIDE):
-        return mem[self.facts.binding[name] + index * stride]
 
     def call(self, entry, pre, post) -> None:
         """One spec call of this copy of the player."""
@@ -356,34 +366,31 @@ class Observer:
         self.record(post)
 
     def observe(self, pre, post) -> None:
-        at, c = self.at, self.calls
-        loading = at(pre, "trigger") & 0x80
+        c = self.calls
+        loading = pre["trigger"] & 0x80
         if loading:
-            row = (at(post, "cursor") - 1) & 0xFF
-            self.loads.append((c, row, at(pre, "trigger") & 15))
+            self.loads.append((c, (post["order_at"] - 1) & 0xFF, pre["trigger"] & 15))
         for x in range(3):
-            flag = at(pre, "flag", x, READER_STRIDE)
-            waiting = not at(pre, "counter", x, READER_STRIDE) & 0x80
+            flag = pre["flags"][x]
+            waiting = not pre[f"reader[{x}].counter"] & 0x80
             if loading or waiting or not flag & 0xF0:
                 continue
-            a = (at(post, "blk_rowidx", x) - 1) & 0xFF if flag & 0x40 else None
-            b = (at(post, "blk_rowidx", 3 + x) - 1) & 0xFF if flag & 0x20 else None
-            note = at(post, "note_base", x) if flag & 0x10 else None
+            a = (post[f"table[{x}].pos"] - 1) & 0xFF if flag & 0x40 else None
+            b = (post[f"table[{3 + x}].pos"] - 1) & 0xFF if flag & 0x20 else None
+            note = post[f"voice[{x}].note_base"] if flag & 0x10 else None
             self.applies[x].append((c, a, b, note, flag & 15 if flag & 0x80 else None))
 
     def record(self, post) -> None:
-        """The cascade blocks and voice records after a call, full or not."""
-        at = self.at
+        """The sidTAB tables and voice records after a call, full or not."""
         self.blocks.append(
-            [
-                (at(post, "blk_rowidx", k), at(post, "blk_counter", k))
-                for k in range(BLOCKS)
-            ]
+            [(post[f"table[{k}].pos"], post[f"table[{k}].wait"]) for k in range(BLOCKS)]
         )
         self.voices.append(
-            {n: [at(post, n, v) for v in range(3)] for n in ("wgh", "wgl", "ad", "sr")}
+            {
+                n: [post[f"voice[{v}].{n}"] for v in range(3)]
+                for n in ("wgh", "wgl", "ad", "sr")
+            }
         )
-        self.rowptr.append(at(post, "rowptr_lo") | at(post, "rowptr_hi") << 8)
 
 
 def watch(player, observers, frames):
@@ -391,12 +398,11 @@ def watch(player, observers, frames):
     run = player._frame_of  # pylint: disable=protected-access
 
     def observed(entry):
-        pre = player.memory
+        pre = _variables(player)
         run(entry)
-        post = player.memory
+        post = _variables(player)
         for observer in observers:
-            if observer.facts.base == entry_base(pre, entry):
-                observer.call(entry, pre, post)
+            observer.call(entry, pre, post)
 
     player._frame_of = observed  # pylint: disable=protected-access
     for _ in range(frames):
@@ -439,7 +445,7 @@ def predicted_phrases(tune, last):
         y = (y + 1) & 0xFF
 
 
-def check_rows(tune, observer, phrases, start_of):
+def check_rows(tune, observer, phrases):
     """The cascade blocks fetch the model's rows, with its holds and successors."""
     arms = {}
     for start, _, delay, events, span in phrases:
@@ -470,7 +476,6 @@ def check_rows(tune, observer, phrases, start_of):
             assert count & 0x80 if counter[k] is None else count == counter[k], (c, k)
         if fetched:
             total += len(fetched)
-            assert observer.rowptr[c] == start_of(fetched[-1][1])
             for name, cell in (
                 ("WGh", "wgh"),
                 ("WGl", "wgl"),
@@ -500,17 +505,12 @@ def test_the_model_reproduces_the_spec_players_walk_steps_and_rows(relpath, song
     observers = [Observer(player, facts) for _, _, facts in models]
     watch(player, observers, song_frames(data, song))
     for (_, tune, facts), observer in zip(models, observers):
-        check(tune, facts, mem, observer)
+        check(tune, observer)
 
 
-def check(tune, facts, mem, observer):
+def check(tune, observer):
     """The walk, the steps and the rows of ``tune`` are those ``observer`` saw."""
     assert all(v["count_a"] & v["count_b"] & 0x80 for v in tune.init.voices)
-    tables = facts.tables
-
-    def start_of(y):
-        return mem[tables["rows_hi"] + y] << 8 | mem[tables["rows_lo"] + y]
-
     phrases = list(predicted_phrases(tune, observer.calls))
     assert observer.loads == [(c, y, t) for c, y, t, *_ in phrases]
     for x in range(3):
@@ -521,4 +521,4 @@ def check(tune, facts, mem, observer):
             if ev.at <= span
         ]
         assert observer.applies[x] == [w for w in want if w[0] < observer.calls]
-    check_rows(tune, observer, phrases, start_of)
+    check_rows(tune, observer, phrases)

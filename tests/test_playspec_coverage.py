@@ -1,8 +1,8 @@
 """The play routine's code against ``defmon.play``, by what the code does.
 
 For each replay a handful of random states (:mod:`tests._support.routine_coverage`) are
-run on the CPU and as the spec, and the whole 64 KiB outside the stack page and the SID
-must agree. The states are the fewest whose runs between them execute every instruction
+run on the CPU and as the spec, and the SID and every player variable (held by the spec as
+state, by the code in memory) must agree. The states are the fewest whose runs between them execute every instruction
 the play entries reach and take each branch both ways, bar the ways no state reaches
 (``never``, each with its reason); a change that moves the coverage, or a spec that
 differs on any of the states, fails.
@@ -28,8 +28,8 @@ SEEDS = json.loads(
 )
 # Replays relocated off ``$1000`` keep absolute operands of that layout (``STA $10CA``,
 # ``JMP $174B``) that the CPU follows and the spec does not model, so a random state
-# makes them differ; ``Glow_Worm``, ``Rent-A-Cop`` and the two copies of
-# ``Timewarp_Spheres_2SID`` are held to the replay by the whole-song tests instead.
+# makes them differ; ``Glow_Worm`` and ``Rent-A-Cop`` are held to the replay by the
+# whole-song tests instead.
 FLAGS = {"exec": EXEC, "taken": TAKEN, "fallthru": FALLTHRU}
 
 
@@ -48,7 +48,7 @@ def test_the_spec_equals_the_code_on_states_that_cover_it(relpath):
     shown = set()
     for seed in SEEDS[relpath]["seeds"]:
         cov, differing = routine.trial(seed)
-        assert not differing, (seed, [hex(at) for at in differing[:8]])
+        assert not differing, (seed, differing[:8])
         shown |= routine.shown(cov)
     assert routine.features() - shown == never
     for at, flag in never:  # each way is dead: the code that decides it already has

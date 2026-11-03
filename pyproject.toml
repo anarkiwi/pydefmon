@@ -8,7 +8,7 @@ version = "0.17.0"
 description = "Python implementation of the defMON C64 tracker's file format and register-level player."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 authors = [
     { name = "Josh Bailey", email = "josh@vandervecken.com" },
 ]
@@ -19,13 +19,12 @@ classifiers = [
     "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Topic :: Multimedia :: Sound/Audio",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = ["lark>=1.2", "pysidtracker>=0.50.1"]
+dependencies = ["lark>=1.2", "pysidtracker>=0.61.0"]
 
 [project.optional-dependencies]
 # Decompress the sidtrace oracle's zstd CSV traces (oracle comparison tests).
@@ -66,7 +65,7 @@ addopts = "-ra -n auto -m 'not oracle'"
 markers = ["oracle: byte-exact comparison against the sidtrace Docker oracle"]
 
 [tool.black]
-target-version = ["py311"]
+target-version = ["py312"]
 
 [tool.pylint.messages_control]
 # C0103 invalid-name: hex-address constants ($1B00, sidTAB column names

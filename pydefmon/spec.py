@@ -202,6 +202,10 @@ CASCADE_OFFSETS = {
 CASCADE_BLOCKS = (0x2DF, 0x405)
 RTS = 0x60
 
+#: The opcodes the player's operands hold: the cutoff slide's subtract and its shift.
+SBC_IMM = 0xE9
+ASL_A = 0x0A
+
 
 def cascade_binding(base: int) -> dict:
     """The ``defmon_cascade.play`` layout of the player at ``base``."""
@@ -410,8 +414,8 @@ def _reduced_entry(mem, base: int) -> "int | None":
     return reduced_entry(mem, base, walker, reader + 3 * READER_SIZE)
 
 
-def defmon_binding(mem, base: int, entry: "int | None" = None) -> dict:
-    """The ``defmon.play`` layout of the player at ``base`` in ``mem``.
+def player_places(mem, base: int, entry: "int | None" = None) -> dict:
+    """Where the player at ``base`` in ``mem`` keeps its tables, variables and build flags.
 
     The blocks whose length varies with the build (the cutoff slide, the arranger walker)
     are found from their code; table addresses are read from the operands that use them.
@@ -531,6 +535,172 @@ def defmon_binding(mem, base: int, entry: "int | None" = None) -> dict:
     return binding
 
 
+#: The tables ``defmon.play`` indexes, by place name, with the span of bytes an index reaches
+#: from the table's address: no player variable may lie in it.
+_TABLE_SPANS = {
+    "pitch_lo": (-25, 256),
+    "pitch_hi": (-25, 256),
+    "rate_lo": (0, 0x7F),
+    "rate_hi": (0, 0x7F),
+    "v1": (0, 256),
+    "v2": (0, 256),
+    "v3": (0, 256),
+    "pat_lo": (0, 256),
+    "pat_hi": (0, 256),
+    "rows_lo": (0, 256),
+    "rows_hi": (0, 256),
+    "dl": (0, 256),
+}
+
+#: ``defmon.play``'s layout fields that are addresses and flags of the build.
+_LAYOUT_ADDRESSES = ("sid", "cp", "pitch_lo", "pitch_hi")
+_LAYOUT_FLAGS = ("uncounted", "plain_tr", "or_ctrl", "fixed", "reduced")
+
+#: The song data lists of the layout: the tables they are read from and their lengths.
+_BYTE_TABLES = {
+    "column1": ("v1", 256),
+    "column2": ("v2", 256),
+    "column3": ("v3", 256),
+    "delays": ("dl", 256),
+}
+_WORD_TABLES = {
+    "patterns": ("pat_lo", "pat_hi", 256),
+    "rows": ("rows_lo", "rows_hi", 256),
+    "rates": ("rate_lo", "rate_hi", 128),
+}
+
+#: The constants of each voice, one byte per voice record.
+_VOICE_CONSTANTS = ("detune", "vbit", "vmask")
+
+#: The player's variables as the spec's state: (machine, state, low byte, high byte of a
+#: 16-bit state, stride between instances, instances). The loop's owner and count exist in
+#: the builds that count loops.
+_STATE = (
+    (None, "trigger", "trigger", None, 0, 1),
+    (None, "order_at", "cursor", None, 0, 1),
+    (None, "res", "res", None, 0, 1),
+    (None, "fv", "fv", None, 0, 1),
+    (None, "cut", "cut_lo", "cut_hi", 0, 1),
+    (None, "cut_step", "cut_step_lo", "cut_step_hi", 0, 1),
+    (None, "extra", "extra", None, 0, 1),
+    ("voice", "freq", "freq_lo", "freq_hi", VOICE_STRIDE, 3),
+    ("voice", "pw", "pw_lo", "pw_hi", VOICE_STRIDE, 3),
+    ("voice", "wgh", "wgh", None, VOICE_STRIDE, 3),
+    ("voice", "wgl", "wgl", None, VOICE_STRIDE, 3),
+    ("voice", "ad", "ad", None, VOICE_STRIDE, 3),
+    ("voice", "sr", "sr", None, VOICE_STRIDE, 3),
+    ("voice", "note", "note", None, VOICE_STRIDE, 3),
+    ("voice", "note_base", "note_base", None, VOICE_STRIDE, 3),
+    ("voice", "mode", "mode", None, VOICE_STRIDE, 3),
+    ("voice", "depth", "depth", None, VOICE_STRIDE, 3),
+    ("voice", "slide", "slide_lo", "slide_hi", VOICE_STRIDE, 3),
+    ("reader", "counter", "counter", None, READER_STRIDE, 3),
+    ("reader", "ptr", "ptr_lo", "ptr_hi", READER_STRIDE, 3),
+    ("table", "pos", "blk_rowidx", None, VOICE_STRIDE, 6),
+    ("table", "wait", "blk_counter", None, VOICE_STRIDE, 6),
+)
+_COUNTED = (
+    (None, "loop_at", "owner", None, 0, 1),
+    (None, "loop_left", "count", None, 0, 1),
+)
+
+#: The bytes the player writes that the spec holds no state for: the readers' copies of what
+#: a step reads, the row interpreter's pointer and scratch, and the cutoff slide's opcodes.
+_UNMODELLED = (
+    "flag",
+    "gate_a",
+    "gate_b",
+    "gate_n",
+    "copy1_lo",
+    "copy1_hi",
+    "copy2_lo",
+) + ("copy2_hi", "copy3_lo", "copy3_hi")
+_UNMODELLED_SHARED = ("rowptr_lo", "rowptr_hi", "scratch", "op_lo", "op_hi", "cp")
+
+
+def state_addresses(places: Mapping) -> dict:
+    """Where the player keeps each variable ``defmon.play`` holds as state: the name
+    :meth:`~pysidtracker.playspec.SpecPlayer.state` takes (``voice[1].freq``) to the addresses
+    of its bytes, low first."""
+    out = {}
+    counted = () if places["uncounted"] else _COUNTED
+    for machine, name, low, high, stride, count in _STATE + counted:
+        for i in range(count):
+            key = name if machine is None else f"{machine}[{i}].{name}"
+            out[key] = tuple(
+                places[part] + i * stride for part in (low, high) if part is not None
+            )
+    return out
+
+
+def variable_addresses(places: Mapping) -> set:
+    """The addresses of every byte of the player's variables."""
+    found = {a for addresses in state_addresses(places).values() for a in addresses}
+    found |= {
+        places[name] + x * READER_STRIDE for name in _UNMODELLED for x in range(3)
+    }
+    return found | {places[name] for name in _UNMODELLED_SHARED}
+
+
+def defmon_binding(
+    mem, base: int, entry: "int | None" = None, places: "Mapping | None" = None
+) -> dict:
+    """The ``defmon.play`` layout of the player at ``base`` in ``mem``: the addresses of the
+    chip and of the pitch tables, the build's flags, the song data as lists, the constants of
+    each voice, and in ``init_<state>`` the variables as the replay's init leaves them (a list
+    per voice, or per sidTAB table).
+
+    ``entry`` is where the routine was entered: the reduced entry binds ``reduced``. ``places``
+    are the player's :func:`player_places` when ``mem`` holds the same code with other data.
+
+    Raises:
+        ValueError: a block is not where the player's code puts it, or a table's index can
+            reach a player variable.
+    """
+    places = player_places(mem, base, entry) if places is None else places
+    variables = variable_addresses(places)
+    for name, (before, after) in _TABLE_SPANS.items():
+        clash = variables.intersection(
+            range(places[name] + before, places[name] + after)
+        )
+        if clash:
+            raise ValueError(f"table {name} reaches the variable at ${min(clash):04x}")
+    binding = {name: places[name] for name in _LAYOUT_ADDRESSES}
+    binding.update({name: int(places[name]) for name in _LAYOUT_FLAGS})
+    binding.update(
+        {
+            name: [mem[places[table] + i] for i in range(size)]
+            for name, (table, size) in _BYTE_TABLES.items()
+        }
+    )
+    binding.update(
+        {
+            name: [mem[places[lo] + i] | mem[places[hi] + i] << 8 for i in range(size)]
+            for name, (lo, hi, size) in _WORD_TABLES.items()
+        }
+    )
+    binding.update(
+        {
+            name: [mem[places[name] + x * VOICE_STRIDE] for x in range(3)]
+            for name in _VOICE_CONSTANTS
+        }
+    )
+    addresses = state_addresses(places)
+    for machine, name, *_rest in _STATE + _COUNTED:
+        keys = [k for k in addresses if k.rpartition(".")[2] == name]
+        values = [
+            sum(mem[a] << 8 * i for i, a in enumerate(addresses[key])) for key in keys
+        ]
+        binding[f"init_{name}"] = values if machine else (values or [0])[0]
+    binding.update(
+        floor=mem[places["floor"]] if places["floored"] else 0,
+        cp_extra=int(places["cp"] == places["extra"]),
+        shifts=int(places["shifts"] and mem[places["shift"]] == ASL_A),
+        init_falling=int(mem[places["op_hi"]] == SBC_IMM),
+    )
+    return binding
+
+
 def spec_entries(view) -> set:
     """The modelled entries of every copy of the player in ``view`` (none if it has no
     player)."""
@@ -544,7 +714,14 @@ def spec_entries(view) -> set:
 
 
 def spec_bind(view, entry: int) -> dict:
-    """The ``defmon.play`` layout of the copy of the player that ``entry`` enters."""
+    """The ``defmon.play`` layout of the copy of the player that ``entry`` enters.
+
+    Raises:
+        ValueError: ``entry`` is in no copy, or the replay plays more than one copy (a stereo
+            replay: each copy has variables of its own, and the spec's state is the tune's).
+    """
+    if len(player_bases(view)) > 1:
+        raise ValueError("a stereo replay plays one copy of the player per chip")
     return defmon_binding(view, entry_base(view, entry), entry)
 
 
@@ -640,11 +817,11 @@ def build_facts(mem, base: int, entry: "int | None" = None) -> BuildFacts:
     Raises:
         ValueError: a block is not where the player's code puts it.
     """
-    binding = defmon_binding(mem, base, entry)
+    places = player_places(mem, base, entry)
     return BuildFacts(
         base,
-        MappingProxyType({name: bool(binding[name]) for name in BUILD_FLAGS}),
-        MappingProxyType({name: binding[name] for name in BUILD_TABLES}),
-        MappingProxyType({name: binding[name] for name in BUILD_STATE}),
-        MappingProxyType(binding),
+        MappingProxyType({name: bool(places[name]) for name in BUILD_FLAGS}),
+        MappingProxyType({name: places[name] for name in BUILD_TABLES}),
+        MappingProxyType({name: places[name] for name in BUILD_STATE}),
+        MappingProxyType(places),
     )

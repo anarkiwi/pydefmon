@@ -137,7 +137,7 @@ runs into a row already placed.
 ## From the replay's memory
 
 `Tune.from_replay(mem, base=None, entry=None)` reads the 64 KiB a replay's init leaves, as
-`specs/defmon.play` does: `build_facts` / `defmon_binding` (`pydefmon.spec`) locate the tables of
+`specs/defmon.play` does: `build_facts` (`pydefmon.spec`) locates the tables and variables of
 the copy of the player at `base`, and nothing is read from the editor's snapshot.
 `Tune.from_player(source, subtune=None)` runs `DefmonPlayer`'s init first.
 

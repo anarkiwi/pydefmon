@@ -17,6 +17,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from jennings.coverage._core import EXEC, FALLTHRU, TAKEN  # noqa: E402
 from pysidtracker.testing import (
     resolve_tune,
 )  # noqa: E402
@@ -29,6 +30,8 @@ from tests._support.routine_coverage import (  # noqa: E402
     Routine,
     mutated_spec,
 )
+
+FLAGS = {EXEC: "exec", TAKEN: "taken", FALLTHRU: "fallthru"}
 
 
 def search(relpath: str, trials: int) -> dict:
@@ -64,7 +67,7 @@ def search(relpath: str, trials: int) -> dict:
     return {
         "seeds": sorted(chosen),
         "killed": sorted(killers),
-        "never": [[at - base, flag] for at, flag in never],
+        "never": [[at - base, FLAGS[flag]] for at, flag in never],
         "mismatched": mismatched[:5],
         "entries": [hex(e) for e in routine.entries],
     }

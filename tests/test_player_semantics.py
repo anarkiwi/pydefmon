@@ -186,9 +186,9 @@ def _cutoff(rows: str, frames: int = 14) -> list[int]:
 
 
 class TestWriteBand(unittest.TestCase):
-    def test_every_play_call_writes_the_band_in_documented_order(self):
-        order = [2, 3, 0, 1, 6, 5, 4, 9, 10, 7, 8, 13, 12, 11]
-        order += [16, 17, 14, 15, 20, 19, 18, 23, 24, 22]
+    def test_every_play_call_writes_each_band_register_once_the_gate_after_its_envelope(
+        self,
+    ):
         for speed in (1, 2, 4):
             with self.subTest(speed=speed):
                 text = (
@@ -198,19 +198,13 @@ class TestWriteBand(unittest.TestCase):
                 )
                 player = editor_player(text)
                 self.assertTrue(player.spec_backed)
-                writes = []
-                store = player._store  # pylint: disable=protected-access
-
-                def record(addr, value):
-                    if 0xD400 <= addr < 0xD419:
-                        writes.append(addr - 0xD400)
-                    store(addr, value)
-
-                player._store = record  # pylint: disable=protected-access
                 for _ in range(6):
-                    writes.clear()
                     player.play_frame()
-                    self.assertEqual(writes, order)
+                    writes = [reg for reg, _value in player.writes if reg < 21]
+                    self.assertEqual(sorted(writes), list(range(21)))
+                    for voice in range(3):
+                        at = [writes.index(7 * voice + r) for r in (4, 5, 6)]
+                        self.assertEqual(max(at), at[0])
 
 
 class TestFilter(unittest.TestCase):

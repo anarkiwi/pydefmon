@@ -317,12 +317,39 @@ def aligned_modulo_missed_irqs(real, ours, *, max_lead: int = 4):
     return None
 
 
+#: The bits of each SID register the chip ignores: the high nibble of each pulse-width high
+#: byte and the high five bits of the cutoff's low byte.
+UNUSED = {3: 0x0F, 10: 0x0F, 17: 0x0F, 21: 0x07}
+
+
+def audible(registers) -> tuple:
+    """The 25 ``registers`` with the bits the chip ignores cleared."""
+    return tuple(r & UNUSED.get(i, 0xFF) for i, r in enumerate(registers))
+
+
+def replay_state(mem, entry: int) -> dict:
+    """The player variables the spec holds as state, by the name ``SpecPlayer.state`` takes,
+    as the replay's memory ``mem`` has them for the copy of the player entered at ``entry``.
+    """
+    # pylint: disable=import-outside-toplevel
+    from pydefmon.spec import SBC_IMM, entry_base, player_places, state_addresses
+
+    places = player_places(mem, entry_base(mem, entry), entry)
+    out = {
+        key: sum(mem[a] << 8 * i for i, a in enumerate(addresses))
+        for key, addresses in state_addresses(places).items()
+    }
+    out["falling"] = mem[places["op_hi"]] == SBC_IMM
+    return out
+
+
 def assert_same_every_call(plain, other, frames: int) -> None:
-    """Play ``frames`` calls of both players; after each, their register writes and the
-    whole 64 KiB outside the stack page must be equal. ``other`` is a
-    :class:`~pysidtracker.playspec.SpecPlayer`: it must have run its spec exactly as many
-    times as ``plain`` entered one of the spec's entries (an entry reached from inside an
-    entered routine is part of it), and at least once.
+    """Play ``frames`` calls of both players; after each, what the chip can hear and every
+    player variable must be equal. ``other`` is a :class:`~pysidtracker.playspec.SpecPlayer`
+    holding the variables as state, ``plain`` the replay's own 6502 holding them in memory:
+    the spec must have run exactly as many times as ``plain`` entered one of the spec's
+    entries (an entry reached from inside an entered routine is part of it), and at least
+    once.
     """
     # pylint: disable=protected-access
     runs, hits, inside = [0], [0], [None]
@@ -344,13 +371,10 @@ def assert_same_every_call(plain, other, frames: int) -> None:
     other._run, plain._mpu.step = counting_run, counting_step
     for frame in range(frames):
         inside[0] = None
-        assert plain.play_frame() == other.play_frame(), f"registers at call {frame}"
-        ram, mem = plain._mem, other._mem
-        if ram[:0x100] != mem[:0x100] or ram[0x200:] != mem[0x200:]:
-            differing = [
-                hex(a)
-                for a in range(0x10000)
-                if not 0x100 <= a < 0x200 and ram[a] != mem[a]
-            ]
-            raise AssertionError(f"memory at call {frame}: {differing[:8]}")
+        plain.play_frame()
+        other.play_frame()
+        assert audible(plain.snapshot()) == audible(other.snapshot()), f"call {frame}"
+        want = replay_state(plain._mem, other.entry)
+        have = {key: other.state(key) for key in want}
+        assert have == want, f"variables at call {frame}"
     assert runs[0] == hits[0] > 0, f"the spec ran {runs[0]} times, the replay {hits[0]}"

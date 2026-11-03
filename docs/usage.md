@@ -140,27 +140,31 @@ Existing cases are kept; add `--prune` to drop those that now pass. `rank` write
   `render_grid(nframes)` and `play_frame()` come from the shared base; byte-exact
   against the `sidtrace` oracle.
 - [`pydefmon/specs/`](../pydefmon/specs) — the replay as a `pysidtracker`
-  playspec: `defmon.play` composes the per-block fragments (`defmon_band`,
-  `_walker`, `_reader`, `_cascade`, `_sidrow`, `_pitch`, `_pwsweep`, `_acid`;
-  `_nmi` is the editor's NMI counter, checked against the editor's handler
-  but not part of `defmon.play`). `pydefmon.spec.defmon_binding`
-  binds it to a tune's relocated replay by signature. The routine is entered at the
-  `JMP` to the band beside the player's start, at the band (called from the tune's
-  own code), or at the player's start plus six, which runs the band and cutoff slide
-  and the cascade but not the walker and readers (multi-speed tunes alternate the
-  two). A call that overruns its period makes the replay miss the next interrupt; the
-  spec costs no cycles, so `DefmonPlayer` plays that call and runs one call ahead of the
-  replay's own 6502 from there. `DefmonPlayer` runs it
-  (`spec_backed`; a stereo tune with a second copy of the player gets a second instance bound to its chip), and `tests/test_playspec_whole.py` holds it to the replay's
-  6502 on every play call of each oracle song: registers and all memory outside
-  the stack page. `tests/test_playspec_coverage.py` also holds it to the code by what the
+  playspec: `defmon.play` is the whole play call, written from the format; the other
+  `defmon_*.play` are fragments of single routines (`_band`, `_walker`, `_reader`,
+  `_cascade`, `_sidrow`, `_pitch`, `_pwsweep`, `_acid`; `_nmi` is the editor's NMI counter,
+  checked against the editor's handler but not part of `defmon.play`), each held to the
+  routine's 6502. [`docs/spec.md`](spec.md) has the spec's model and the binder.
+  The routine is entered at the `JMP` to the band beside the player's start, at the band
+  (called from the tune's own code), or at the player's start plus six, which runs the band and
+  cutoff slide and the sidTAB tables but not the arranger and readers (multi-speed tunes
+  alternate the two). A call that overruns its period makes the replay miss the next interrupt;
+  the spec costs no cycles, so `DefmonPlayer` plays that call and runs one call ahead of the
+  replay's own 6502 from there. `DefmonPlayer` runs it (`spec_backed`; a replay with a second
+  copy of the player, a stereo one, plays its own 6502 instead), and
+  `tests/test_playspec_whole.py` holds it to the replay's 6502 on every play call of each oracle
+  song: what the chip can hear and every player variable, which the spec holds as state and the
+  replay in memory. `tests/test_playspec_coverage.py` also holds it to the code by what the
   code does: for each of 15 replay builds a few random states
   (`tests/_support/routine_coverage.py`) run every instruction the play entries reach and
   both ways of every branch bar four dead ways (jennings' `CoverageMPU` measures this), the
-  spec and the CPU leave the same 64 KiB and SID registers on each, and twelve one-line
+  spec and the CPU leave the same SID registers and variables on each, and fourteen one-line
   changes to the spec are told apart. `scripts/coverage_seeds.py` finds the seeds; the
-  relocated `Glow_Worm`, `Rent-A-Cop` and `Timewarp_Spheres_2SID` follow stale `$1000`
-  operands the spec does not model and are covered by the whole-song tests.
+  relocated `Glow_Worm` and `Rent-A-Cop` follow stale `$1000` operands the spec does not model
+  and are covered by the whole-song tests.
+- `scripts/gate_tunes.py HVSC OUT.csv` lists every HVSC tune the format accepts, the input of
+  pysidtracker's `tools/spec_trace.py record|check`, which compares what is audible of a
+  rewritten spec against a recording of the old one.
 - `register_writes_from_player` / `read_reglog` / `write_reglog` / `RegWrite` —
   the shared `py*` register-log surface.
 - `render_player_wav` / `render_player_samples` — the shared `py*` WAV/sample

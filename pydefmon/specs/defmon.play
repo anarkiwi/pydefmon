@@ -1,427 +1,345 @@
-// defMON replay playroutine, one call: the SID write band, the cutoff slide, the
-// arranger walker, each voice's pattern step reader, the six sidTAB cascade blocks
-// (which call the row interpreter), then the pitch and pulse-width sweep of each voice,
-// from the last voice to the first, the sweep's subtract taking the carry the pitch leaves. The routine keeps its state in the operands of its own
-// instructions and in VOICE-byte records, so most cells are operands or read through memory.
+// defMON's play call. The band writes the SID from what the last call left in each voice, then the
+// filter registers and the cutoff slide follow. The arranger moves on when a pattern ends and
+// restarts the patterns and their step counters; each voice's pattern reader counts a step out and
+// reads the next: a note, and the sidTAB rows to start. Six sidTAB tables (two per voice) apply a
+// row of column writes and wait out its delay. The voices sound last: pitch with detune, a
+// semitone step or a slide, then the pulse-width sweep.
 spec defmon;
+
 layout {
-  uncounted, plain_tr, or_ctrl, floored, shifts, fixed, reduced: flag;
-  pw_lo, pw_hi, freq_lo, freq_hi, sr, ad, wgh, wgl, res, fv, sid,
-  cut_lo, cut_hi, cut_step_lo, cut_step_hi, op_lo, op_hi, extra, floor, shift,
-  rowptr_lo, rowptr_hi, scratch, note, note_base, mode, depth, vbit, vmask, cp, detune,
-  trigger, cursor, owner, count, v1, v2, v3, pat_lo, pat_hi,
-  counter, ptr_lo, ptr_hi, copy1_lo, copy1_hi, copy2_lo, copy2_hi, copy3_lo, copy3_hi,
-  flag, gate_a, gate_b, gate_n, row_a, count_a, row_b, count_b, slide_lo, slide_hi,
-  rows_lo, rows_hi, dl, blk_counter, blk_rowidx,
-  pitch_lo, pitch_hi, rate_lo, rate_hi, step_lo, step_hi: addr;
+  sid, cp, pitch_lo, pitch_hi: addr;
+  floor, init_extra, init_trigger, init_order_at, init_loop_at, init_loop_left, init_res, init_fv,
+  init_falling, init_cut, init_cut_step: byte;
+  uncounted, plain_tr, or_ctrl, shifts, fixed, reduced, cp_extra: flag;
+  column1, column2, column3, patterns, rows, delays, rates, detune, vbit, vmask: list;
+  init_freq, init_pw, init_wgh, init_wgl, init_ad, init_sr, init_note, init_note_base, init_mode,
+  init_depth, init_slide, init_counter, init_ptr, init_pos, init_wait: list;
 }
-const VOICE = 0x31;
-const READER = 0x88;
-const BLOCK = 0x31;
-const ADC_IMM = 0x69;
-const SBC_IMM = 0xE9;
-const ASL_A = 0x0A;
 
-cell sid: u8[32] @ L.sid out;
-cell trigger: u8 @ L.trigger operand;
-cell cursor: u8 @ L.cursor operand;
-cell v1: u8[256] @ L.v1 ro;
-cell v2: u8[256] @ L.v2 ro;
-cell v3: u8[256] @ L.v3 ro;
-cell rows_lo: u8[256] @ L.rows_lo ro;
-cell rows_hi: u8[256] @ L.rows_hi ro;
-cell dl: u8[256] @ L.dl ro;
-cell rowptr: u16 @ (L.rowptr_lo, L.rowptr_hi);
-cell scratch: u8 @ L.scratch scratch;
-cell res: u8 @ L.res;
-cell fv: u8 @ L.fv;
-cell cp: u8 @ L.cp;
-cell extra: u8 @ L.extra;
-cell cut_lo: u8 @ L.cut_lo operand;
-cell cut_hi: u8 @ L.cut_hi operand;
-cell cut_step_lo: u8 @ L.cut_step_lo operand;
-cell cut_step_hi: u8 @ L.cut_step_hi operand;
-cell op_lo: u8 @ L.op_lo operand;
-cell op_hi: u8 @ L.op_hi operand;
-cell step_lo: u8 @ L.step_lo operand;
-cell step_hi: u8 @ L.step_hi operand;
-cell pitch_lo: u8[256] @ L.pitch_lo ro notes(lo, -24);
-cell pitch_hi: u8[256] @ L.pitch_hi ro notes(hi, -24);
-cell pitch_lo_prev: u8[256] @ L.pitch_lo - 25 ro notes(lo, -49);
-cell pitch_hi_prev: u8[256] @ L.pitch_hi - 25 ro notes(hi, -49);
-cell pitch_lo_step: u8[256] @ L.pitch_lo - 24 ro notes(lo, -48);
-cell pitch_hi_step: u8[256] @ L.pitch_hi - 24 ro notes(hi, -48);
+cell sid_cutoff: u8 @ L.sid + 0x16 out;
+cell sid_res: u8 @ L.sid + 0x17 out;
+cell sid_vol: u8 @ L.sid + 0x18 out;
+// The CP column stores to the cutoff offset; a replay relocated without patching that store
+// leaves it at an address outside the player.
+cell stray: u8 @ L.cp;
 
-proc sidrow(v: u16, lo: u8) {
-  mem[L.rowptr_lo] := lo;
-  stream r = rowptr @ 0 grammar "pydefmon._layout:STREAMS:row";
-  let low = next r;
-  if low != 0 {
-    scratch := low << 1;
-    if low & 0x40 != 0 { mem[L.wgh + v] := next r; }
-    if low & 0x80 != 0 { mem[L.wgl + v] := next r; }
-    if low & 0x20 != 0 { mem[L.ad + v] := next r; }
-    if low & 0x10 != 0 { mem[L.sr + v] := next r; }
-    if low & 0x08 != 0 {
-      let t = next r;
-      if L.plain_tr {
-        mem[L.note + v] := t + mem[L.note_base + v];
-      } else {
-        mem[L.note + v] := ite(neg(t), t & 0x7F, (t + mem[L.note_base + v]) & 0x7F);
-      }
-    }
-    if low & 0x04 != 0 { mem[L.mode + v] := next r; }
-    if low & 0x02 != 0 {
-      let w = next r;
-      mem[L.pw_hi + v] := w;
-      mem[L.pw_lo + v] := w & 0xF0;
-    }
-  }
-  let high = next r;
-  if high == 0 {
-    return;
-  }
-  scratch := high << 1;
-  if high & 0x80 != 0 { mem[L.depth + v] := next r; }
-  if high & 0x40 != 0 {
-    let b = next r;
-    if b == 0 {
-      res := res & mem[L.vmask + v];
-    } elif b & 0x08 != 0 {
-      res := (res & 0x0F) | b | mem[L.vbit + v];
-    } else {
-      res := b;
-    }
-  }
-  if high & 0x20 != 0 { fv := next r; }
-  if high & 0x10 != 0 { cp := next r; }
-  if high & 0x08 != 0 {
-    let alo = next r;
-    let ahi = next r;
-    if !neg(ahi) {
-      cut_lo := alo;
-      cut_hi := ahi;
-      cut_step_lo := 0;
-      cut_step_hi := 0;
-    } elif ahi & 0x40 != 0 {
-      cut_step_lo := alo;
-      cut_step_hi := ahi & 0x3F;
-      op_lo := SBC_IMM;
-      op_hi := SBC_IMM;
-    } else {
-      cut_step_lo := alo;
-      cut_step_hi := ahi & 0x7F;
-      op_lo := ADC_IMM;
-      op_hi := ADC_IMM;
-    }
-  }
-}
+// Song data: the arranger's three columns of pattern numbers, the patterns' addresses, the sidTAB
+// rows' addresses and delays, and the slide rates. The note pitch table is read at the note and,
+// for a semitone step, at 24 and 25 entries before the index y = mode + note.
+state column1: u8[] ro = L.column1;
+state column2: u8[] ro = L.column2;
+state column3: u8[] ro = L.column3;
+state patterns: u16[] ro = L.patterns;
+state rows: u16[] ro = L.rows;
+state delays: u8[] ro = L.delays;
+state rates: u16[] ro = L.rates;
+cell pitch: u16[256] @ (L.pitch_lo, L.pitch_hi) ro notes(word, -24);
+cell below: u16[256] @ (L.pitch_lo - 25, L.pitch_hi - 25) ro notes(word, -49);
+cell above: u16[256] @ (L.pitch_lo - 24, L.pitch_hi - 24) ro notes(word, -48);
+
+// The pattern end that wakes the arranger (bit 7, the speed in the low nibble), its row, the loop
+// row it counts and the passes left; the filter registers; the cutoff slide's position, step and
+// direction, and the offset the CP column sets.
+state trigger: u8 = L.init_trigger;
+state order_at: u8 = L.init_order_at;
+state loop_at: u8 = L.init_loop_at;
+state loop_left: u8 = L.init_loop_left;
+state res: u8 = L.init_res;
+state fv: u8 = L.init_fv;
+state cut: u16 = L.init_cut;
+state cut_step: u16 = L.init_cut_step;
+state falling: bool = L.init_falling != 0;
+state extra: u8 = L.init_extra;
 
 machine band[x in 0..3] {
+  record chip @ L.sid stride 7 { out_freq: u16; out_pw: u12; out_ctrl: u8; out_ad: u8; out_sr: u8; }
   step {
-    let v = u16(x * VOICE);
-    sid[x * 7 + 2] := mem[L.pw_lo + v];
-    sid[x * 7 + 3] := mem[L.pw_hi + v];
-    sid[x * 7] := mem[L.freq_lo + v];
-    sid[x * 7 + 1] := mem[L.freq_hi + v];
-    sid[x * 7 + 6] := mem[L.sr + v];
-    sid[x * 7 + 5] := mem[L.ad + v];
+    out_freq := voice[x].freq;
+    out_pw := voice[x].pw;
+    out_ad := voice[x].ad;
+    out_sr := voice[x].sr;
     if L.or_ctrl {
-      sid[x * 7 + 4] := mem[L.wgh + v] | mem[L.wgl + v];
+      out_ctrl := voice[x].wgh | voice[x].wgl;
     } else {
-      sid[x * 7 + 4] := mem[L.wgh + v] ^ mem[L.wgl + v];
+      out_ctrl := voice[x].wgh ^ voice[x].wgl;
     }
   }
 }
 
+// The filter registers, and the cutoff slide: the 16-bit position moves by its step (one more
+// down), and the register is its high byte plus the offset and the slide's carry, held to the floor
+// and doubled in a build that shifts.
 machine filter {
   step {
-    sid[0x17] := res;
-    sid[0x18] := fv | 0x0F;
-  }
-}
-
-machine cutoff {
-  cell floor: u8 @ L.floor operand;
-  cell shift: u8 @ L.shift operand;
-  step {
-    let c = false;
-    if op_hi == SBC_IMM {
-      c := !borrow(cut_lo, cut_step_lo, true);
-      cut_lo := cut_lo - cut_step_lo - 1;
-      let cin = c;
-      c := !borrow(cut_hi, cut_step_hi, !cin);
-      cut_hi := cut_hi - cut_step_hi - u8(!cin);
+    sid_res := res;
+    sid_vol := fv | 0x0F;
+    let up = false;
+    if falling {
+      up := !borrow(cut, cut_step, true);
+      cut := cut - cut_step - 1;
     } else {
-      c := carry(cut_lo, cut_step_lo);
-      cut_lo += cut_step_lo;
-      let cin = c;
-      c := carry(cut_hi, cut_step_hi, cin);
-      cut_hi := cut_hi + cut_step_hi + u8(cin);
+      up := carry(cut, cut_step);
+      cut += cut_step;
     }
-    let bottom = 0;
-    if L.floored {
-      bottom := floor;
+    let bottom = L.floor;
+    if neg(hi(cut)) {
+      cut.hi := bottom;
     }
-    if neg(cut_hi) {
-      cut_hi := bottom;
-    }
-    let out = cut_hi + extra + u8(c);
+    let out = hi(cut) + extra + u8(up);
     if neg(out) || out < bottom {
       out := bottom;
     }
     if L.shifts {
-      if shift == ASL_A {
-        out := out << 1;
-      }
+      out := out << 1;
     }
-    sid[0x16] := out;
+    sid_cutoff := out;
   }
 }
 
-machine walker {
-  cell owner: u8 @ L.owner;
-  cell count: u8 @ L.count;
-  cell p0: u16 @ (L.ptr_lo, L.ptr_hi);
-  cell p1: u16 @ (L.ptr_lo + READER, L.ptr_hi + READER);
-  cell p2: u16 @ (L.ptr_lo + 2 * READER, L.ptr_hi + 2 * READER);
-  cell c0: u8 @ L.counter operand;
-  cell c1: u8 @ L.counter + READER operand;
-  cell c2: u8 @ L.counter + 2 * READER operand;
+// The arranger runs when a pattern has ended: every reader restarts with the speed in the ending
+// step, and takes its pattern from the next row. A row whose first column has bit 7 jumps to its
+// second column; a nonzero third column counts how many times (a build that counts).
+machine arranger {
   step {
     if !neg(trigger) {
       return;
     }
-    let t = trigger & 0x0F;
-    trigger := t;
-    c0 := t;
-    c1 := t;
-    c2 := t;
-    let y = cursor;
-    if neg(v1[y]) {
-      if v3[y] == 0 {
-        y := v2[y];
-      } elif owner != y {
-        owner := y;
-        count := v3[y];
-        y := v2[y];
+    let speed = trigger & 0x0F;
+    trigger := speed;
+    for v in 0..3 {
+      reader[v].counter := speed;
+    }
+    let y = order_at;
+    if neg(column1[y]) {
+      if L.uncounted || column3[y] == 0 {
+        y := column2[y];
+      } elif loop_at != y {
+        loop_at := y;
+        loop_left := column3[y];
+        y := column2[y];
       } else {
-        count -= 1;
-        if count != 0 {
-          y := v2[y];
+        loop_left -= 1;
+        if loop_left != 0 {
+          y := column2[y];
         } else {
-          owner := 0;
-          y := y + 1;
+          loop_at := 0;
+          y += 1;
         }
       }
     }
-    p0 := word(mem[L.pat_lo + u16(v1[y])], mem[L.pat_hi + u16(v1[y])]);
-    p1 := word(mem[L.pat_lo + u16(v2[y])], mem[L.pat_hi + u16(v2[y])]);
-    p2 := word(mem[L.pat_lo + u16(v3[y])], mem[L.pat_hi + u16(v3[y])]);
-    cursor := y + 1;
+    reader[0].ptr := patterns[column1[y]];
+    reader[1].ptr := patterns[column2[y]];
+    reader[2].ptr := patterns[column3[y]];
+    order_at := y + 1;
   }
 }
 
-machine walker_uncounted {
-  cell p0: u16 @ (L.ptr_lo, L.ptr_hi);
-  cell p1: u16 @ (L.ptr_lo + READER, L.ptr_hi + READER);
-  cell p2: u16 @ (L.ptr_lo + 2 * READER, L.ptr_hi + 2 * READER);
-  cell c0: u8 @ L.counter operand;
-  cell c1: u8 @ L.counter + READER operand;
-  cell c2: u8 @ L.counter + 2 * READER operand;
-  step {
-    if !neg(trigger) {
-      return;
-    }
-    let t = trigger & 0x0F;
-    trigger := t;
-    c0 := t;
-    c1 := t;
-    c2 := t;
-    let y = cursor;
-    if neg(v1[y]) {
-      y := v2[y];
-    }
-    p0 := word(mem[L.pat_lo + u16(v1[y])], mem[L.pat_hi + u16(v1[y])]);
-    p1 := word(mem[L.pat_lo + u16(v2[y])], mem[L.pat_hi + u16(v2[y])]);
-    p2 := word(mem[L.pat_lo + u16(v3[y])], mem[L.pat_hi + u16(v3[y])]);
-    cursor := y + 1;
-  }
-}
-
+// A voice's pattern: steps of a flag byte (bit 7 ends the pattern, bits 6, 5, 4 say which of the
+// two sidTAB rows and the note follow, the low nibble is the step's length), and a note starts
+// its tables and clears the voice's slide and mode.
 machine reader[x in 0..3] {
-  cell counter: u8 @ L.counter + x * READER operand;
-  cell ptr: u16 @ (L.ptr_lo + x * READER, L.ptr_hi + x * READER);
-  cell copy1: u16 @ (L.copy1_lo + x * READER, L.copy1_hi + x * READER);
-  cell copy2: u16 @ (L.copy2_lo + x * READER, L.copy2_hi + x * READER);
-  cell copy3: u16 @ (L.copy3_lo + x * READER, L.copy3_hi + x * READER);
-  cell flag: u8 @ L.flag + x * READER operand;
-  cell gate_a: u8 @ L.gate_a + x * READER operand;
-  cell gate_b: u8 @ L.gate_b + x * READER operand;
-  cell gate_n: u8 @ L.gate_n + x * READER operand;
-  cell row_a: u8 @ L.row_a + x * VOICE operand;
-  cell count_a: u8 @ L.count_a + x * VOICE operand;
-  cell row_b: u8 @ L.row_b + x * VOICE operand;
-  cell count_b: u8 @ L.count_b + x * VOICE operand;
-  cell note_base: u8 @ L.note_base + x * VOICE operand;
-  cell note: u8 @ L.note + x * VOICE;
-  cell slide_lo: u8 @ L.slide_lo + x * VOICE;
-  cell slide_hi: u8 @ L.slide_hi + x * VOICE;
-  cell mode: u8 @ L.mode + x * VOICE;
+  state counter: u8 = L.init_counter[x];
+  state ptr: u16 = L.init_ptr[x];
+
+  proc skip(s: stream) {
+    if L.fixed {
+      s.pos += 1;
+    }
+  }
+
   step {
     if !neg(counter) {
       counter -= 1;
-      if !neg(counter) {
-        return;
-      }
-      copy1 := ptr;
-      copy2 := ptr;
-      copy3 := ptr;
-      let f = mem[ptr];
-      flag := f;
-      gate_a := f << 1;
-      gate_b := f << 2;
-      gate_n := f << 3;
       return;
     }
-    let y = 1;
-    if neg(gate_a) {
-      row_a := mem[ptr + u16(y)];
-      count_a := 0;
-      y += 1;
+    stream steps = ptr @ 0;
+    let flag = next steps;
+    if flag & 0x40 != 0 {
+      table[x].pos := next steps;
+      table[x].wait := 0;
     } else {
-      if L.fixed {
-        y += 1;
-      }
+      skip(steps);
     }
-    if neg(gate_b) {
-      row_b := mem[copy2 + u16(y)];
-      count_b := 0;
-      y += 1;
+    if flag & 0x20 != 0 {
+      table[3 + x].pos := next steps;
+      table[3 + x].wait := 0;
     } else {
-      if L.fixed {
-        y += 1;
-      }
+      skip(steps);
     }
-    if neg(gate_n) {
-      let n = mem[copy3 + u16(y)];
-      note_base := n;
-      note := n;
-      slide_lo := 0;
-      slide_hi := 0;
-      mode := 0;
-      y += 1;
+    if flag & 0x10 != 0 {
+      let n = next steps;
+      voice[x].note_base := n;
+      voice[x].note := n;
+      voice[x].slide := 0;
+      voice[x].mode := 0;
     } else {
-      if L.fixed {
-        y += 1;
-      }
+      skip(steps);
     }
-    let fl = flag;
-    if neg(fl) {
-      trigger := fl;
+    if neg(flag) {
+      trigger := flag;
     } else {
-      ptr := ptr + u16(y);
-      counter := fl & 0x0F;
+      ptr += u16(steps.pos);
+      counter := flag & 0x0F;
     }
   }
 }
 
-machine layer[k in 0..6] {
-  cell blk_counter: u8 @ L.blk_counter + k * BLOCK operand;
-  cell blk_rowidx: u8 @ L.blk_rowidx + k * BLOCK operand;
-  step {
-    if neg(blk_counter) {
-      return;
-    }
-    if blk_counter != 0 {
-      blk_counter -= 1;
-      return;
-    }
-    let eff = blk_rowidx;
-    if rows_hi[eff] == 0 {
-      eff := rows_lo[eff];
-    }
-    mem[L.rowptr_hi] := rows_hi[eff];
-    blk_counter := dl[eff];
-    blk_rowidx := eff + 1;
-    sidrow(u16(k % 3 * VOICE), rows_lo[eff]);
-  }
-}
+// A sidTAB table, run for its voice: a row of column writes, then its delay in calls ($80.. stops
+// the table). A row whose address high byte is zero is a jump to the row numbered by its low byte.
+machine table[k in 0..6] {
+  state pos: u8 = L.init_pos[k];
+  state wait: u8 = L.init_wait[k];
 
-machine voice[x in 0..3] {
-  cell mode: u8 @ L.mode + x * VOICE;
-  cell slide_lo: u8 @ L.slide_lo + x * VOICE;
-  cell slide_hi: u8 @ L.slide_hi + x * VOICE;
-  cell detune: u8 @ L.detune + x * VOICE ro;
-  cell note: u8 @ L.note + x * VOICE;
-  cell freq_lo: u8 @ L.freq_lo + x * VOICE operand;
-  cell freq_hi: u8 @ L.freq_hi + x * VOICE operand;
-  cell depth: u8 @ L.depth + x * VOICE;
-  cell lo: u8 @ L.pw_lo + x * VOICE;
-  cell hi: u8 @ L.pw_hi + x * VOICE;
   step {
-    let cy = false;
-    let plo = pitch_lo[note];
-    let phi = pitch_hi[note];
-    if mode == 0 {
-      freq_lo := plo + detune;
-      freq_hi := phi;
-      cy := carry(plo, detune);
-    } else {
-      if !neg(mode) {
-        let y = mode + note;
-        let plo_prev = pitch_lo_prev[y];
-        let phi_prev = pitch_hi_prev[y];
-        let plo_step = pitch_lo_step[y];
-        let phi_step = pitch_hi_step[y];
-        step_lo := plo_step - plo_prev;
-        step_hi := phi_step - phi_prev - u8(plo_step < plo_prev);
-        freq_lo := plo + step_lo;
-        let c = carry(plo, step_lo);
-        freq_hi := phi + step_hi + u8(c);
-        cy := carry(phi, step_hi, c);
-      } else {
-        let r = u16((mode << 1) & 0x7F);
-        let up = !(mode & 0x40 != 0);
-        if up {
-          let c = carry(slide_lo, mem[L.rate_lo + r]);
-          slide_lo += mem[L.rate_lo + r];
-          slide_hi := slide_hi + mem[L.rate_hi + r] + u8(c);
+    if neg(wait) {
+      return;
+    }
+    if wait != 0 {
+      wait -= 1;
+      return;
+    }
+    let n = pos;
+    if rows[n] < 0x100 {
+      n := lo(rows[n]);
+    }
+    wait := delays[n];
+    pos := n + 1;
+    columns(rows[n]);
+  }
+
+  // A row: a bitmap of the columns the first byte selects, then one for the second byte's.
+  proc columns(address: u16) {
+    stream bytes = address @ 0 grammar "pydefmon._layout:STREAMS:row";
+    let low = next bytes;
+    if low != 0 {
+      if low & 0x40 != 0 {
+        voice[k % 3].wgh := next bytes;
+      }
+      if low & 0x80 != 0 {
+        voice[k % 3].wgl := next bytes;
+      }
+      if low & 0x20 != 0 {
+        voice[k % 3].ad := next bytes;
+      }
+      if low & 0x10 != 0 {
+        voice[k % 3].sr := next bytes;
+      }
+      if low & 0x08 != 0 {
+        let tr = next bytes;
+        if L.plain_tr {
+          voice[k % 3].note := tr + voice[k % 3].note_base;
         } else {
-          let b = slide_lo < mem[L.rate_lo + r];
-          slide_lo -= mem[L.rate_lo + r];
-          slide_hi := slide_hi - mem[L.rate_hi + r] - u8(b);
+          voice[k % 3].note := ite(neg(tr), tr & 0x7F, (tr + voice[k % 3].note_base) & 0x7F);
         }
-        freq_lo := plo + slide_lo;
-        let c = carry(plo, slide_lo);
-        freq_hi := phi + slide_hi + u8(c);
-        cy := carry(phi, slide_hi, c);
       }
+      if low & 0x04 != 0 {
+        voice[k % 3].mode := next bytes;
+      }
+      if low & 0x02 != 0 {
+        let w = next bytes;
+        voice[k % 3].pw := word(w & 0xF0, w);
+      }
+    }
+    let high = next bytes;
+    if high == 0 {
+      return;
+    }
+    if high & 0x80 != 0 {
+      voice[k % 3].depth := next bytes;
+    }
+    if high & 0x40 != 0 {
+      let b = next bytes;
+      if b == 0 {
+        res := res & L.vmask[k % 3];
+      } elif b & 0x08 != 0 {
+        res := (res & 0x0F) | b | L.vbit[k % 3];
+      } else {
+        res := b;
+      }
+    }
+    if high & 0x20 != 0 {
+      fv := next bytes;
+    }
+    if high & 0x10 != 0 {
+      if L.cp_extra {
+        extra := next bytes;
+      } else {
+        stray := next bytes;
+      }
+    }
+    if high & 0x08 != 0 {
+      let lo = next bytes;
+      let hi = next bytes;
+      if !neg(hi) {
+        cut := word(lo, hi);
+        cut_step := 0;
+      } elif hi & 0x40 != 0 {
+        cut_step := word(lo, hi & 0x3F);
+        falling := true;
+      } else {
+        cut_step := word(lo, hi & 0x7F);
+        falling := false;
+      }
+    }
+  }
+}
+
+// A voice sounds: its pitch from the note and the slide mode (0 adds the voice's detune to the
+// low byte alone; $01..$7F adds the pitch step of the semitone 24 below note + mode; $80..$FF
+// moves a 16-bit slide by a rate, bit 6 down, and adds it), then the pulse-width sweep (bit 7 of
+// the depth up, else down), which takes the carry the pitch left.
+machine voice[x in 0..3] {
+  state freq: u16 = L.init_freq[x];
+  state pw: u16 = L.init_pw[x];
+  state wgh: u8 = L.init_wgh[x];
+  state wgl: u8 = L.init_wgl[x];
+  state ad: u8 = L.init_ad[x];
+  state sr: u8 = L.init_sr[x];
+  state note: u8 = L.init_note[x];
+  state note_base: u8 = L.init_note_base[x];
+  state mode: u8 = L.init_mode[x];
+  state depth: u8 = L.init_depth[x];
+  state slide: u16 = L.init_slide[x];
+
+  step {
+    let base = pitch[note];
+    let cy = false;
+    if mode == 0 {
+      freq := base;
+      freq.lo := lo(base) + L.detune[x];
+      cy := carry(lo(base), L.detune[x]);
+    } elif !neg(mode) {
+      let y = mode + note;
+      let delta = above[y] - below[y];
+      freq := base + delta;
+      cy := carry(base, delta);
+    } else {
+      let r = rates[(mode << 1) & 0x7F];
+      if mode & 0x40 == 0 {
+        slide += r;
+      } else {
+        slide -= r;
+      }
+      freq := base + slide;
+      cy := carry(base, slide);
     }
     if depth == 0 {
       return;
     }
     if neg(depth) {
-      let c = carry(lo, depth & 0x7F);
-      lo += depth & 0x7F;
-      if c {
-        if hi == 0x0F {
-          lo := 0xF8;
-          depth ^= 0x80;
-        } else {
-          hi += 1;
-        }
+      let up = depth & 0x7F;
+      if carry(lo(pw), up) && hi(pw) == 0x0F {
+        pw.lo := 0xF8;
+        depth ^= 0x80;
+      } else {
+        pw += u16(up);
       }
     } else {
-      let b = borrow(lo, depth, !cy);
-      lo := lo - depth - u8(!cy);
-      if b {
-        if hi == 0 {
-          lo := 0x01;
-          depth ^= 0x80;
-        } else {
-          hi -= 1;
-        }
+      if borrow(lo(pw), depth, !cy) && hi(pw) == 0 {
+        pw.lo := 1;
+        depth ^= 0x80;
+      } else {
+        pw := pw - u16(depth) - u16(!cy);
       }
     }
   }
@@ -432,19 +350,14 @@ schedule {
     band[v];
   }
   filter;
-  cutoff;
   if !L.reduced {
-    if L.uncounted {
-      walker_uncounted;
-    } else {
-      walker;
-    }
+    arranger;
     for v in 0..3 {
       reader[v];
     }
   }
   for k in 0..6 {
-    layer[k];
+    table[k];
   }
   voice[2];
   voice[1];

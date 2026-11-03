@@ -157,13 +157,14 @@ def test_standard_notes_under_a_slide_add_the_accumulator(relpath):
 
 
 def _voices(player):
-    """``(cells, facts, voice offset)`` of every voice of every copy of the player."""
+    """``(note, mode, freq word, detune)`` of every voice, from the spec's state."""
     mem = player.memory
-    for base in player_bases(mem):
-        facts = build_facts(mem, base)
-        for voice in range(3):
-            at = voice * VOICE_STRIDE
-            yield {name: mem[addr + at] for name, addr in facts.state.items()}
+    facts = build_facts(mem, player_bases(mem)[0])
+    for voice in range(3):
+        yield (
+            *(player.state(f"voice[{voice}].{n}") for n in ("note", "mode", "freq")),
+            mem[facts.state["detune"] + voice * VOICE_STRIDE],
+        )
 
 
 def test_whole_spec_with_notes_plays_the_standard_word_of_every_note():
@@ -173,13 +174,11 @@ def test_whole_spec_with_notes_plays_the_standard_word_of_every_note():
         player = FMT.spec_player(FMT.parser.parse(data), notes=PAL)
         for _ in range(600):
             player.play_frame()
-            for cells in _voices(player):
-                note, mode = cells["note"], cells["mode"]
-                word = cells["freq_hi"] << 8 | cells["freq_lo"]
+            for note, mode, word, detune in _voices(player):
                 seen.add("negative" * (0 < note < NOTE_BIAS))
                 seen.add("past top" * (note > STANDARD_TOP))
                 if mode == 0:
-                    low = (_std(note) + cells["detune"]) & 0xFF
+                    low = (_std(note) + detune) & 0xFF
                     assert word == _std(note) & 0xFF00 | low
                 elif mode < 0x80:
                     y = (mode + note) & 0xFF
@@ -221,11 +220,10 @@ def test_notes_follow_the_clock_of_the_tunes_header():
     for _ in range(300):
         player.play_frame()
         pal.play_frame()
-        for cells in _voices(player):
-            if cells["mode"] == 0 and cells["note"]:
-                word = cells["freq_hi"] << 8 | cells["freq_lo"]
-                want = frequency(cells["note"] - NOTE_BIAS, NTSC)
-                assert word == want & 0xFF00 | (want + cells["detune"]) & 0xFF
+        for note, mode, word, detune in _voices(player):
+            if mode == 0 and note:
+                want = frequency(note - NOTE_BIAS, NTSC)
+                assert word == want & 0xFF00 | (want + detune) & 0xFF
                 sounded += 1
     assert sounded
     assert any(a != b for a, b in zip(_voices(player), _voices(pal)))

@@ -12,8 +12,9 @@ import unittest
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from jennings.assembler import Assembler
+from jennings.devices.mpu6502 import MPU
 from pysidtracker import native_decrunch
-from pysidtracker.asm6502 import assemble
 from pysidtracker.header import write_psid
 from pysidtracker.testing import (
     TuneFetchError,
@@ -27,6 +28,8 @@ _SYNTH_LOAD = 0x1000
 _SYNTH_PLAY = 0x1020
 _SYNTH_INIT = "LDA #$0F\nSTA $D418\nLDA #$21\nSTA $D404\nRTS"
 _SYNTH_STEP = "INC $D400\nRTS"
+
+assemble = Assembler(MPU()).assemble_program
 
 
 def synthetic_replay(
